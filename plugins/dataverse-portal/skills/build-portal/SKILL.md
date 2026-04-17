@@ -276,20 +276,29 @@ const urgent = await client.me.list<Case>("case", {
 
 Never construct OData strings by hand. The SDK builds `$filter` from the structured object.
 
-### 7. Environment
+### 7. Environment — including Auth0 SPA auto-creation
 
-Write `.env.example` and `.env` using values discovered in step 0:
+Call `create_spa_client` via the admin MCP to provision the Auth0 app (PKCE, localhost:5173 callbacks) so the user never touches the Auth0 dashboard:
+
+```
+create_spa_client({ name: "<project-name>" })
+→ { clientId: "abc123..." }
+```
+
+Write `.env.example` and `.env` with **every value filled in**:
 
 ```
 VITE_AUTH0_DOMAIN=${AUTH0_DOMAIN}
-VITE_AUTH0_CLIENT_ID=            # user supplies — see step 9
+VITE_AUTH0_CLIENT_ID=<clientId from create_spa_client>
 VITE_AUTH0_AUDIENCE=${AUTH0_AUDIENCE_DEFAULT}         # for default scope
-# or
-VITE_AUTH0_AUDIENCE=${AUTH0_AUDIENCE_DEFAULT}/${TARGET_SCOPE}  # for a named scope
+# or for a named scope:
+VITE_AUTH0_AUDIENCE=${AUTH0_AUDIENCE_DEFAULT}/${TARGET_SCOPE}
 VITE_API_BASE_URL=${API_URL}
 ```
 
-No guessing, no hardcoded tenant names — all values come from `/.well-known/oauth-protected-resource`.
+No hardcoded tenant names, no blank Client ID, no "go copy-paste from Auth0". Everything comes from `/.well-known/oauth-protected-resource` + the `create_spa_client` response.
+
+**Production URL (optional):** if the user specifies a prod URL (e.g. "deploy to vercel" later), pass `extraUrls: ["https://<prod>.vercel.app"]` to `create_spa_client` so the Auth0 app is pre-registered for that origin too. Or call `create_spa_client` again after deployment — the tool accepts arbitrary URLs.
 
 ### 8. Run & verify
 
@@ -298,13 +307,13 @@ npm run typecheck   # must pass clean
 npm run dev &       # background, report URL
 ```
 
-### 9. Print the Auth0 SPA checklist (verbatim)
+### 9. Confirm (don't instruct)
 
-> **One-time Auth0 setup:**
-> 1. Create a new **Single Page Application** in Auth0 (same tenant).
-> 2. Copy Client ID into `.env` as `VITE_AUTH0_CLIENT_ID`.
-> 3. Add `http://localhost:5173` to Allowed Callback / Logout / Web Origin URLs.
-> 4. Save and reload.
+The Auth0 SPA was auto-provisioned in step 7 via `create_spa_client`. Nothing to click. Print a one-liner confirmation so the user sees what happened:
+
+> ✓ Auth0 SPA app `<project-name>` created automatically (client_id: `<short-prefix>…`) with localhost:5173 pre-authorised. Reload `http://localhost:5173` and log in.
+
+If the user asks about production, tell them: "When you deploy, re-run `create_spa_client` with `extraUrls: ['https://<prod-url>']` or edit the Auth0 app directly — both work."
 
 ## Worked examples
 

@@ -1,5 +1,5 @@
 {
   "name": "dataverse-portal",
   "description": "End-to-end portal scaffolder for the Dataverse Contact API. Self-registers the admin MCP via device-code OAuth on first invocation — no manual key copying, no page visits, just one prompt and one browser click to authorize. Invoke by saying 'build a case portal', 'build a portal using <API URL>', or 'build me a bookings portal in scope X'.",
-  "version": "0.4.1"
+  "version": "0.5.0"
 }
