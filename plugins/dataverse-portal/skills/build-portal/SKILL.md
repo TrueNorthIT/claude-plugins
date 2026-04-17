@@ -307,13 +307,30 @@ npm run typecheck   # must pass clean
 npm run dev &       # background, report URL
 ```
 
-### 9. Confirm (don't instruct)
+### 9. Offer to grant the first user access
 
-The Auth0 SPA was auto-provisioned in step 7 via `create_spa_client`. Nothing to click. Print a one-liner confirmation so the user sees what happened:
+After confirming the scaffold, ask the user in one sentence whether to add a user now:
 
-> ✓ Auth0 SPA app `<project-name>` created automatically (client_id: `<short-prefix>…`) with localhost:5173 pre-authorised. Reload `http://localhost:5173` and log in.
+> ✓ Auth0 SPA app `<project-name>` created (client_id: `<short-prefix>…`) with localhost:5173 pre-authorised. Reload `http://localhost:5173` when ready.
+>
+> **Want me to grant access to a user right now?** Give me an email and I'll call `grant_user_access` — they'll be able to log in immediately with a sensible starter permission set. (Or skip this, and do it in the Auth0 dashboard later.)
 
-If the user asks about production, tell them: "When you deploy, re-run `create_spa_client` with `extraUrls: ['https://<prod-url>']` or edit the Auth0 app directly — both work."
+If the user says yes with an email:
+
+1. Compute the starter permission set from the scope's tables. For a new scope you just populated, this is typically the `me`-tier read/write/create perms for every table:
+   - `<table>` (read my records)
+   - `<table>:write` (update my records)
+   - `<table>:create` (create records auto-bound to me)
+   - `<table>:lookup` (resolve lookups)
+   - Repeat for related tables (e.g. `annotation` for case portals)
+2. Call `grant_user_access({ email, permissions: [...] })`. Scope defaults to URL-bound.
+3. Relay the response:
+   > ✓ Granted 6 permissions to steve@drakey.co.uk on scope `case-portal`.
+   > They need to log out / log back in before the new token picks up the perms. If they already minted an MCP key, tell them to regenerate — keys snapshot perms at issuance.
+
+If the user wants team-tier or admin-tier access, expand the list accordingly (e.g. add `<table>:team` + `<table>:write:team`, or `<table>:all` + `<table>:write:all`).
+
+If `grant_user_access` returns `found: false`, the user doesn't have an Auth0 account yet — tell the caller to invite them via the Auth0 dashboard (Users → Create User) and re-run.
 
 ## Worked examples
 
