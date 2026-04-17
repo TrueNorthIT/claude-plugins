@@ -32,11 +32,23 @@ State the assumed defaults in one sentence before work starts. Don't interrogate
 
 ### 0. Discover the deployment
 
-Hit `GET ${API_URL}/.well-known/oauth-protected-resource` (public). The response includes the Auth0 domain + authorization servers. Record the Auth0 audience — you'll need it for the scaffolded portal's `.env`.
+Hit `GET ${API_URL}/.well-known/oauth-protected-resource` (public). The response has everything you need to populate the scaffolded portal's `.env` later — don't guess, don't ask the user.
 
 ```bash
-curl -s "${API_URL}/.well-known/oauth-protected-resource"
+WELL_KNOWN=$(curl -s "${API_URL}/.well-known/oauth-protected-resource")
+AUTH0_DOMAIN=$(echo "$WELL_KNOWN" | jq -r .auth0_domain)
+AUTH0_AUDIENCE_DEFAULT=$(echo "$WELL_KNOWN" | jq -r .auth0_audience)
 ```
+
+Field map:
+
+| JSON field | Goes into portal `.env` as |
+|---|---|
+| `auth0_domain` | `VITE_AUTH0_DOMAIN` |
+| `auth0_audience` | `VITE_AUTH0_AUDIENCE` (default scope) |
+| `resource` / `auth0_audience` | base audience — append `/<scope>` for non-default scopes |
+
+Cache these for step 7.
 
 ### 1. Ensure the admin MCP is registered
 
@@ -238,18 +250,18 @@ Never construct OData strings by hand. The SDK builds `$filter` from the structu
 
 ### 7. Environment
 
-Write `.env.example` and `.env` using values discovered earlier:
+Write `.env.example` and `.env` using values discovered in step 0:
 
 ```
-VITE_AUTH0_DOMAIN=<from /.well-known Auth0 domain>
+VITE_AUTH0_DOMAIN=${AUTH0_DOMAIN}
 VITE_AUTH0_CLIENT_ID=            # user supplies — see step 9
-VITE_AUTH0_AUDIENCE=<from scope — see below>
+VITE_AUTH0_AUDIENCE=${AUTH0_AUDIENCE_DEFAULT}         # for default scope
+# or
+VITE_AUTH0_AUDIENCE=${AUTH0_AUDIENCE_DEFAULT}/${TARGET_SCOPE}  # for a named scope
 VITE_API_BASE_URL=${API_URL}
 ```
 
-Auth0 audience:
-- `default` scope → `https://tn-dataverse-contact-api` (read from `/.well-known` if unsure)
-- Other scope → `https://tn-dataverse-contact-api/<scope>`
+No guessing, no hardcoded tenant names — all values come from `/.well-known/oauth-protected-resource`.
 
 ### 8. Run & verify
 
