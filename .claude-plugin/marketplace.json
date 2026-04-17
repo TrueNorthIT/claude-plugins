@@ -1,0 +1,14 @@
+{
+  "name": "truenorthit",
+  "owner": {
+    "name": "TrueNorth IT",
+    "email": "hello@truenorthit.co.uk"
+  },
+  "plugins": [
+    {
+      "name": "dataverse-portal",
+      "source": "./plugins/dataverse-portal",
+      "description": "Scaffold a React + TypeScript + Tailwind + Auth0 SPA against the Dataverse Contact API, following the patterns from dataverse-example-case-portal."
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+{
+  "name": "dataverse-portal",
+  "description": "Scaffold a React + TypeScript + Tailwind + Auth0 SPA that consumes the Dataverse Contact API. Invoke by asking Claude Code to 'build a portal', 'scaffold a UI', or 'create a case portal'.",
+  "version": "0.1.0"
+}
