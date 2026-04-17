@@ -22,11 +22,11 @@ Defaults when absent:
 | Default | Value |
 |---|---|
 | `API_URL` | `https://api.dataverse-contact.tnapps.co.uk` |
-| `TARGET_SCOPE` | `default` |
+| `TARGET_SCOPE` | **asked** — see step 3. Don't silently default to `default` — the user gets a one-question choice between `default` and a sensibly-named new scope. |
 | `TIER` | `me` |
 | Project name | slugified portal noun |
 
-State the assumed defaults in one sentence before work starts. Don't interrogate.
+For the URL, tier, and project name: state what you assumed in one sentence before work starts — don't interrogate. Only the scope question is interactive.
 
 ## Workflow
 
@@ -115,13 +115,29 @@ Read:
 - `capabilities.canCreateScopes` — required only if `TARGET_SCOPE` is new.
 - `currentScope` — confirms the URL-bound scope matches your target.
 
-### 3. Resolve the scope
+### 3. Resolve the scope — infer + confirm
 
-Call `list_scopes`. Three branches:
+Call `list_scopes` to see what already exists. Then branch on whether the user named a scope in the prompt:
 
-- **`TARGET_SCOPE` is `default` or already present** → proceed to step 4.
-- **`TARGET_SCOPE` missing AND `canCreateScopes`** → call `create_scope()` (no args needed — defaults to URL scope). State that you're provisioning a new scope.
-- **`TARGET_SCOPE` missing AND !canCreateScopes** → stop. Ask the user to request `scope:admin` or pick an existing scope.
+**Path A — user did NOT name a scope.** Infer a candidate from the portal noun:
+- "case portal" → suggest `case-portal`
+- "booking portal" / "bookings app" → suggest `bookings`
+- "contacts app" → suggest `contacts`
+- "pm tool" / "project portal" → suggest `pm` (or whatever fits)
+- Ambiguous nouns (e.g. "dashboard") → just suggest `default`
+
+Ask the user in ONE sentence, offering two real options:
+
+> "I'll put this portal in scope `default` (shared with existing tables — case, contact, account, etc.). Or I can create a new scope `case-portal` just for this project. Which?"
+
+Wait for their reply. Respect whatever they say — names, `default`, or `cancel`. Don't proceed until they've chosen.
+
+**Path B — user DID name a scope** ("in scope X", "scope=X"):
+- If X is in `list_scopes` → use it, proceed.
+- If X is missing → confirm once: "Scope `X` doesn't exist. Create it? (say 'yes' or pick a different name)". On yes + `canCreateScopes`, call `create_scope()`. On no, fall back to `default`.
+
+**Permission check before any create:**
+- `canCreateScopes` (from `whoami`) must be true to provision a scope. If false and the user wanted a new one, stop and explain: "You need `scope:admin` on the admin API. Ask an operator, or use the `default` scope."
 
 ### 4. Populate tables (only for newly created scopes)
 
@@ -282,20 +298,24 @@ npm run dev &       # background, report URL
 
 ### "build me a case portal using https://api.dataverse-contact.tnapps.co.uk"
 
-- `API_URL` = provided
-- `TARGET_SCOPE` = default
-- Fetches `/.well-known`, checks `claude mcp list`, runs device flow if needed, confirms `canAdminTables`, uses existing `incident` + `annotation` tables, scaffolds portal. One prompt, one browser click to authorize.
+- `API_URL` = provided; `TARGET_SCOPE` not specified.
+- Fetches `/.well-known`, device flow if no MCP, `whoami` confirms perms.
+- `list_scopes` returns the existing ones. Skill asks: "I can put this in scope `default` (shared — uses existing case/contact tables) or create a new scope `case-portal` just for this project. Which?"
+- User: "default".
+- Skill uses existing `incident` + `annotation` tables, scaffolds the frontend. One prompt, one browser click to authorize, one sentence of confirmation.
 
-### "build me a bookings portal in scope bookings-pilot"
+### "build me a bookings portal"
 
-- `API_URL` = default (skill's built-in)
-- `TARGET_SCOPE` = `bookings-pilot`
-- Device flow registers MCP at `/api/v2/bookings-pilot/mcp-admin`
-- `whoami` → `canCreateScopes: true`
-- `list_scopes` → missing
-- `create_scope()` → provisions Auth0 resource server + blob marker
-- `scaffold_table(msdyn_bookableresourcebooking)` + `save_table_draft` + `publish_tables`
-- Scaffold portal targeting `/api/v2/bookings-pilot/` with audience `https://tn-dataverse-contact-api/bookings-pilot`
+- `API_URL` = default (skill's built-in); no scope in prompt.
+- Skill asks: "Put this in `default` or create a new scope `bookings`?"
+- User: "new scope called `bookings-pilot`".
+- Skill: `create_scope({ name: "bookings-pilot" })` → provisions Auth0 resource server.
+- `scaffold_table(msdyn_bookableresourcebooking)` + `save_table_draft` + `publish_tables`.
+- Scaffolds portal targeting `/api/v2/bookings-pilot/` with audience `https://tn-dataverse-contact-api/bookings-pilot`.
+
+### "build me a case portal in scope case-portal"
+
+- Scope explicitly named. Skill checks `list_scopes` — not there. Confirms once: "Scope `case-portal` doesn't exist. Create it? (yes / no)". Proceeds on yes.
 
 ## Dependencies
 
