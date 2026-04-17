@@ -1,190 +1,227 @@
 ---
 name: build-portal
-description: Scaffold a new React + TypeScript + Tailwind + Auth0 SPA that consumes the Dataverse Contact API (api.dataverse-contact.tnapps.co.uk), and optionally provision a new scope for it. Use when the user asks to build, scaffold, or create a portal / UI / app / frontend against a Dataverse table — e.g. "build me a case portal", "scaffold a UI for the booking table", "create a contacts app using the dataverse api", "build me a case portal in scope case-portal". Follows the conventions proven in dataverse-example-case-portal.
+description: Scaffold a new React + TypeScript + Tailwind + Auth0 SPA that consumes the Dataverse Contact API, end-to-end from a single prompt. Use when the user asks to build, scaffold, or create a portal / UI / app / frontend against a Dataverse table — e.g. "build me a case portal", "build me a case portal using https://api.dataverse-contact.tnapps.co.uk", "scaffold a UI for the booking table in scope pilot", "create a contacts app". The skill auto-registers the admin MCP via device-code OAuth if it's not already connected.
 ---
 
 # build-portal
 
-Scaffolds a new SPA that consumes the Dataverse Contact API. Optionally provisions a new scope if the URL-bound scope doesn't exist yet. Mirrors the layout and patterns of the canonical reference (`dataverse-example-case-portal`).
+End-to-end scaffold of a Vite + React + TypeScript + Tailwind + Auth0 SPA against the Dataverse Contact API. The skill handles everything — API discovery, MCP registration via device-code OAuth, scope provisioning if requested, table scaffolding, and the final frontend.
 
-## Defaults (assume unless user overrides)
+## Trigger-time data from the prompt
 
-| Setting | Default | User override |
+| Signal | How to detect | How to use |
 |---|---|---|
-| API base URL | `https://api.dataverse-contact.tnapps.co.uk` | "my API is at X" |
-| Scope | URL-bound scope from the registered admin MCP (the `dataverse-<scope>` client) | "use scope X" or "in scope X" |
-| Access tier | `me` | "team" or "all" |
-| Stack | Vite + React 19 + TypeScript + Tailwind v4 + `@auth0/auth0-react` | rarely overridden |
-| SDK | `@truenorth-it/dataverse-client` (use it — don't hand-roll fetch) | — |
-| Target tables | inferred from the prompt ("case" → `incident`, "booking" → `msdyn_bookableresourcebooking`, etc.) | explicit table names |
+| API URL | Any `https://…` URL in the prompt whose host looks like an API endpoint | `API_URL` — the base for all HTTP + MCP endpoints |
+| Scope | "in scope X" / "scope=X" / "use scope X" | `TARGET_SCOPE` — URL scope + provisioning target |
+| Access tier | "me" / "team" / "all" | `TIER` |
+| Target table | "case portal" → `incident`; "booking" → `msdyn_bookableresourcebooking`; etc. | Drives scaffold_table calls |
+| Project name | Repeats the portal noun (`case-portal`, `bookings-pilot`) or explicit "project X" | Folder name + Vite project name |
 
-When you apply defaults, state them in one sentence before scaffolding — don't interrogate the user first.
+Defaults when absent:
 
-## Prerequisite: the admin MCP
+| Default | Value |
+|---|---|
+| `API_URL` | `https://api.dataverse-contact.tnapps.co.uk` |
+| `TARGET_SCOPE` | `default` |
+| `TIER` | `me` |
+| Project name | slugified portal noun |
 
-This skill depends on the `dataverse-<scope>` admin MCP (from `/api/v2/{scope}/mcp-admin`), registered via the Claude Code quickstart page at `/claude-code`. Expected tools:
-
-- `whoami` — check caller identity + capabilities (canAdminTables, canCreateScopes)
-- `list_scopes` — see which scopes already exist
-- `create_scope` — provision a new scope (requires `scope:admin`)
-- `list_table_definitions`, `get_table_definition` — schema introspection for existing tables
-- `scaffold_table`, `save_table_draft`, `publish_tables` — table management for new scopes
-- `discover_entities`, `discover_entity_details` — Dataverse entity discovery
-
-If the MCP is not available, stop and point the user at `/claude-code`. Don't guess schemas.
+State the assumed defaults in one sentence before work starts. Don't interrogate.
 
 ## Workflow
 
-### 1. Orient — call `whoami`
+### 0. Discover the deployment
 
-Read back:
-- `currentScope` — the URL-bound scope from the MCP registration
-- `capabilities.canAdminTables` — needed for all scaffolding
-- `capabilities.canCreateScopes` — needed only for creating a new scope
+Hit `GET ${API_URL}/.well-known/oauth-protected-resource` (public). The response includes the Auth0 domain + authorization servers. Record the Auth0 audience — you'll need it for the scaffolded portal's `.env`.
 
-If `canAdminTables` is false, stop: "You don't have `admin:tables` on the admin audience. Ask an admin to grant it via Auth0." No further work is possible.
+```bash
+curl -s "${API_URL}/.well-known/oauth-protected-resource"
+```
 
-### 2. Resolve the scope
+### 1. Ensure the admin MCP is registered
+
+```bash
+claude mcp list
+```
+
+Look for an entry whose URL matches `${API_URL}/api/v2/${TARGET_SCOPE}/mcp-admin`. If present, skip to step 3.
+
+If absent, run the device-code flow:
+
+```bash
+# a) Request codes
+RESP=$(curl -s -X POST "${API_URL}/api/v2/device/code" \
+  -H "Content-Type: application/json" \
+  -d "{\"scope\":\"${TARGET_SCOPE}\",\"client_name\":\"claude-code\"}")
+
+USER_CODE=$(echo "$RESP" | jq -r .user_code)
+DEVICE_CODE=$(echo "$RESP" | jq -r .device_code)
+VERIFY_URL=$(echo "$RESP" | jq -r .verification_uri_complete)
+INTERVAL=$(echo "$RESP" | jq -r .interval)
+```
+
+Print to the user, verbatim:
+
+> **Open this URL to authorize:**
+> `<VERIFY_URL>`
+> Code: `<USER_CODE>` (valid for 10 minutes)
+> I'll wait here — come back when done.
+
+Poll for the key every `INTERVAL` seconds (typically 3). The loop exits on 200 (success), 403 (denied), or 410 (expired):
+
+```bash
+while true; do
+  POLL=$(curl -s -w '\nHTTP:%{http_code}' -X POST "${API_URL}/api/v2/device/token" \
+    -H "Content-Type: application/json" \
+    -d "{\"device_code\":\"${DEVICE_CODE}\"}")
+  STATUS=$(echo "$POLL" | tail -n1 | sed 's/HTTP://')
+  BODY=$(echo "$POLL" | head -n-1)
+  case "$STATUS" in
+    200) MCP_KEY=$(echo "$BODY" | jq -r .mcp_key); break ;;
+    428) sleep "$INTERVAL" ;;
+    403) echo "User denied"; exit 1 ;;
+    410) echo "Code expired"; exit 1 ;;
+    *)   echo "Unexpected $STATUS"; exit 1 ;;
+  esac
+done
+```
+
+Register the MCP:
+
+```bash
+claude mcp add --transport http "dataverse-${TARGET_SCOPE}" \
+  "${API_URL}/api/v2/${TARGET_SCOPE}/mcp-admin" \
+  -H "Authorization: Bearer ${MCP_KEY}"
+```
+
+The skill uses `Bash` for all of the above — no user typing required beyond visiting the verification URL once.
+
+### 2. Orient — call `whoami` via the MCP
+
+Read:
+- `capabilities.canAdminTables` — required. If false, stop.
+- `capabilities.canCreateScopes` — required only if `TARGET_SCOPE` is new.
+- `currentScope` — confirms the URL-bound scope matches your target.
+
+### 3. Resolve the scope
 
 Call `list_scopes`. Three branches:
 
-**A. No scope mentioned in the prompt OR currentScope is `default`:**
-Use `default`. Proceed to step 4.
+- **`TARGET_SCOPE` is `default` or already present** → proceed to step 4.
+- **`TARGET_SCOPE` missing AND `canCreateScopes`** → call `create_scope()` (no args needed — defaults to URL scope). State that you're provisioning a new scope.
+- **`TARGET_SCOPE` missing AND !canCreateScopes** → stop. Ask the user to request `scope:admin` or pick an existing scope.
 
-**B. Scope named and already in `list_scopes`:**
-Use it. Proceed to step 4.
+### 4. Populate tables (only for newly created scopes)
 
-**C. Scope named (or URL-bound) and NOT in `list_scopes`:**
-Fork on `canCreateScopes`:
-- If false, stop: "Scope `X` doesn't exist and you can't create one. Ask an admin for `scope:admin` or pick an existing scope."
-- If true, confirm with the user in one sentence: "Creating scope `X` via the admin MCP — this provisions a new Auth0 Resource Server at `{default-audience}/X`." Then call `create_scope({ name: "X" })` (or `create_scope()` if the URL scope matches). No MCP key regeneration is needed — `admin:tables` is flat.
+For each table the portal needs (derived from the prompt — "case portal" → `incident` + `annotation` for notes; "booking portal" → `msdyn_bookableresourcebooking`; etc.):
 
-### 3. Populate the scope with tables (only for newly created scopes)
-
-For each table the portal needs (derived from the prompt — e.g. "case portal" → `incident`, "casenotes" for the annotation sub-flow):
-
-1. `discover_entity_details({ entity: "<logicalName>" })` — raw Dataverse metadata
-2. `scaffold_table({ entity: "<logicalName>" })` — generate a SchemaHint draft
-3. `save_table_draft({ schema: <json> })` — persist as a draft (validates against live Dataverse)
-4. `publish_tables({ tables: ["<routeName>"] })` — publish; auto-syncs Auth0 permissions
+1. `discover_entity_details({ entity })` — live Dataverse metadata
+2. `scaffold_table({ entity })` — generate a SchemaHint draft
+3. `save_table_draft({ schema: <json> })` — persist
+4. `publish_tables({ tables: [<routeName>] })` — go live (auto-syncs Auth0 permissions)
 
 For `default` or already-populated scopes, skip this step.
 
-### 4. Inspect published schema
+### 5. Inspect published schema
 
 For each target table:
-- `get_table_definition({ table: "<routeName>" })` — canonical schema with fields/types/expands
-- Public HTTP: `GET /api/v2/<scope>/choices/<table>` — choice/picklist values (no auth)
-- Optionally: `sample_data({ table: "<routeName>", limit: 3 })` — real rows to sanity-check field presence
+- `get_table_definition({ table: <routeName> })` — canonical schema with fields/types/expands
+- Public HTTP: `GET ${API_URL}/api/v2/${TARGET_SCOPE}/choices/<table>` — picklist values (no auth)
+- Optionally `sample_data({ table, limit: 3 })` — real rows for sanity
 
-Cache these — you'll use them for TypeScript types and `select` field lists.
+Cache these for TypeScript type generation and SDK `select` lists.
 
-### 5. Scaffold the frontend
+### 6. Scaffold the frontend
 
-Run from the cwd the user invoked you in. If it's already populated, ask before overwriting.
+From the user's cwd:
 
 ```bash
-npm create vite@latest <name> -- --template react-ts
-cd <name>
+PROJECT_NAME=<inferred or from prompt>
+npm create vite@latest "$PROJECT_NAME" -- --template react-ts
+cd "$PROJECT_NAME"
 npm install
 npm install @auth0/auth0-react @truenorth-it/dataverse-client
 npm install -D tailwindcss @tailwindcss/vite
 ```
 
-Mirror this layout (from `dataverse-example-case-portal/`):
+Mirror the layout of `dataverse-example-case-portal` — either local sibling dir or `WebFetch` from `https://raw.githubusercontent.com/TrueNorthIT/dataverse-example-case-portal/main/...`:
 
 ```
 src/
-├── App.tsx              ← Auth0 gate + layout
-├── main.tsx             ← Auth0Provider wrapper
-├── env.ts               ← requireEnvVar() for the four VITE_* vars
-├── index.css            ← Tailwind @import
+├── App.tsx                  ← Auth0 gate + layout
+├── main.tsx                 ← Auth0Provider wrapper
+├── env.ts                   ← requireEnvVar() for four VITE_* vars
+├── index.css                ← Tailwind @import
 ├── services/<table>Api.ts   ← SDK-based (fetchX, createX, updateX)
 ├── hooks/use<Table>.ts      ← React hook for data + state
 ├── types/<table>.ts         ← types derived from get_table_definition
-├── components/
-│   ├── LoginScreen.tsx
-│   ├── Header.tsx
-│   ├── <Table>Table.tsx
-│   └── <Table>Detail.tsx
-└── utils/
-    ├── format.ts
-    └── style.ts
+└── components/*.tsx         ← LoginScreen, Header, <Table>Table, <Table>Detail
 ```
 
 Non-negotiable rules:
-- Files **under 300 lines**. Split components, extract hooks.
-- One concern per file. Types in `types/`, helpers in `utils/`, hooks in `hooks/`, services in `services/`.
-- No barrel exports. Import directly from the defining file.
-- No code shared with the API repo — all data via HTTP through the SDK.
-- Use the SDK's scope clients: `client.me.list<T>("case", { select, top, orderBy })`. Don't hand-roll fetch.
-- Generated TypeScript types come from `get_table_definition`, not guesses.
 
-### 6. Environment
+- Files under 300 lines. Split components; extract hooks.
+- One concern per file.
+- No barrel exports.
+- No code shared with the API repo — HTTP only via the SDK.
+- Use SDK scope clients: `client.me.list<T>("case", { select, top, orderBy })`.
+- Generated types come from `get_table_definition`, never guesses.
 
-Write `.env.example`:
+### 7. Environment
+
+Write `.env.example` and `.env` using values discovered earlier:
 
 ```
-VITE_AUTH0_DOMAIN=your-tenant.auth0.com
-VITE_AUTH0_CLIENT_ID=            # create a new Auth0 SPA app for this portal
-VITE_AUTH0_AUDIENCE=<scope-audience>    # from whoami/list_scopes for the target scope
-VITE_API_BASE_URL=https://api.dataverse-contact.tnapps.co.uk
+VITE_AUTH0_DOMAIN=<from /.well-known Auth0 domain>
+VITE_AUTH0_CLIENT_ID=            # user supplies — see step 9
+VITE_AUTH0_AUDIENCE=<from scope — see below>
+VITE_API_BASE_URL=${API_URL}
 ```
 
-Copy to `.env`, filling in everything except `VITE_AUTH0_CLIENT_ID`. For the default scope, audience is `https://tn-dataverse-contact-api`. For custom scopes, it's `https://tn-dataverse-contact-api/<scope>`.
+Auth0 audience:
+- `default` scope → `https://tn-dataverse-contact-api` (read from `/.well-known` if unsure)
+- Other scope → `https://tn-dataverse-contact-api/<scope>`
 
-### 7. Run & verify
-
-- `npm run typecheck` — must pass clean
-- `npm run dev` in the background — report the URL
-- Stop. Don't iterate further until the user has looked at it.
-
-### 8. Post-scaffold instructions (print verbatim)
-
-> **One-time Auth0 setup for this portal:**
-> 1. In Auth0, create a new **SPA Application** (same tenant as the API).
-> 2. Copy the Client ID into `.env` as `VITE_AUTH0_CLIENT_ID`.
-> 3. In Settings, add `http://localhost:5173` to **Allowed Callback URLs**, **Allowed Logout URLs**, and **Allowed Web Origins**.
-> 4. Reload `http://localhost:5173` and log in.
-
-## Copy-from-reference cheat sheet
-
-If `../dataverse-example-case-portal/` exists locally, read it. Otherwise `WebFetch` the file from GitHub:
-
-| Generating | Copy pattern from | GitHub fallback |
-|---|---|---|
-| `src/env.ts` | `dataverse-example-case-portal/src/env.ts` (verbatim) | `https://raw.githubusercontent.com/TrueNorthIT/dataverse-example-case-portal/main/src/env.ts` |
-| `src/main.tsx` | `dataverse-example-case-portal/src/main.tsx` | same path |
-| `src/App.tsx` | `dataverse-example-case-portal/src/App.tsx` (auth gate structure) | same path |
-| `src/services/<table>Api.ts` | `dataverse-example-case-portal/src/services/caseApi.ts` | same path |
-| `src/hooks/use<Table>.ts` | `dataverse-example-case-portal/src/hooks/useCases.ts` | same path |
-| Components | `dataverse-example-case-portal/src/components/*.tsx` | same path |
-| `.env.example`, `vercel.json`, `vite.config.ts`, `tsconfig.json` | copy verbatim | same path |
-
-Do not invent patterns that diverge from the reference. If the user asks for something the reference doesn't cover, ask before improvising.
-
-## Deploy hint (only if user asks)
-
-SPA on Vercel:
+### 8. Run & verify
 
 ```bash
-npm install -g vercel
-vercel            # first deploy — answer prompts
-vercel --prod     # subsequent
+npm run typecheck   # must pass clean
+npm run dev &       # background, report URL
 ```
 
-Then set the four `VITE_*` env vars in Vercel, and in Auth0 add the Vercel URL to **Allowed Callback URLs**, **Allowed Logout URLs**, and **Allowed Web Origins**.
+### 9. Print the Auth0 SPA checklist (verbatim)
 
-## Worked example — "build me a case portal in scope case-pilot"
+> **One-time Auth0 setup:**
+> 1. Create a new **Single Page Application** in Auth0 (same tenant).
+> 2. Copy Client ID into `.env` as `VITE_AUTH0_CLIENT_ID`.
+> 3. Add `http://localhost:5173` to Allowed Callback / Logout / Web Origin URLs.
+> 4. Save and reload.
 
-1. `whoami` → `{ currentScope: "case-pilot", canAdminTables: true, canCreateScopes: true }`
-2. `list_scopes` → `{ scopes: ["default", "rbooking"] }` — `case-pilot` missing
-3. Confirm with user, call `create_scope()` (defaults to `case-pilot` from URL)
-4. `discover_entity_details({ entity: "incident" })` → schema
-5. `scaffold_table({ entity: "incident" })` → draft
-6. `save_table_draft({ schema })` + `publish_tables({ tables: ["case"] })` — same for `annotation` → `casenotes`
-7. `get_table_definition({ table: "case" })` — canonical fields
-8. Public `GET /api/v2/case-pilot/choices/case` — picklists
-9. `npm create vite@latest case-pilot ...` — scaffold
-10. Write files following the reference, `.env` with audience `https://tn-dataverse-contact-api/case-pilot`
-11. `npm run dev`, print the Auth0 SPA checklist
+## Worked examples
+
+### "build me a case portal using https://api.dataverse-contact.tnapps.co.uk"
+
+- `API_URL` = provided
+- `TARGET_SCOPE` = default
+- Fetches `/.well-known`, checks `claude mcp list`, runs device flow if needed, confirms `canAdminTables`, uses existing `incident` + `annotation` tables, scaffolds portal. One prompt, one browser click to authorize.
+
+### "build me a bookings portal in scope bookings-pilot"
+
+- `API_URL` = default (skill's built-in)
+- `TARGET_SCOPE` = `bookings-pilot`
+- Device flow registers MCP at `/api/v2/bookings-pilot/mcp-admin`
+- `whoami` → `canCreateScopes: true`
+- `list_scopes` → missing
+- `create_scope()` → provisions Auth0 resource server + blob marker
+- `scaffold_table(msdyn_bookableresourcebooking)` + `save_table_draft` + `publish_tables`
+- Scaffold portal targeting `/api/v2/bookings-pilot/` with audience `https://tn-dataverse-contact-api/bookings-pilot`
+
+## Dependencies
+
+This skill shells out via `Bash` for:
+- `curl` — device flow + `/.well-known` + choices
+- `claude mcp list` / `claude mcp add`
+- `jq` — JSON extraction from curl responses
+- `npm` / `npx` — scaffold and type-check
+
+The plugin's `.claude/settings.json` pre-approves these so the skill doesn't pause for permissions mid-flow.
