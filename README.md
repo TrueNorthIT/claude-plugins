@@ -12,7 +12,7 @@ Claude Code plugins for building against TrueNorth IT services.
 
 ```bash
 # Add this marketplace once
-claude plugin marketplace add TrueNorthIT/claude-marketplace
+claude plugin marketplace add TrueNorthIT/claude-plugins
 
 # Install a plugin
 claude plugin install dataverse-portal@truenorthit
@@ -21,7 +21,7 @@ claude plugin install dataverse-portal@truenorthit
 Or from inside a Claude Code session:
 
 ```
-/plugin marketplace add TrueNorthIT/claude-marketplace
+/plugin marketplace add TrueNorthIT/claude-plugins
 /plugin install dataverse-portal@truenorthit
 ```
 
@@ -36,7 +36,7 @@ claude plugin marketplace update truenorthit
 To iterate on a plugin locally before pushing:
 
 ```bash
-claude plugin marketplace add ./claude-marketplace
+claude plugin marketplace add ./claude-plugins
 claude plugin install dataverse-portal@truenorthit
 ```
 
@@ -49,7 +49,7 @@ claude plugin validate .
 ## Layout
 
 ```
-claude-marketplace/
+claude-plugins/
 ├── .claude-plugin/
 │   └── marketplace.json              ← Marketplace manifest (name, owner, plugins[])
 ├── plugins/
