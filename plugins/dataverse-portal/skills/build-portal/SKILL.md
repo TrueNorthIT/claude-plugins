@@ -163,9 +163,78 @@ Non-negotiable rules:
 - Files under 300 lines. Split components; extract hooks.
 - One concern per file.
 - No barrel exports.
-- No code shared with the API repo — HTTP only via the SDK.
-- Use SDK scope clients: `client.me.list<T>("case", { select, top, orderBy })`.
+- **Always use the `@truenorth-it/dataverse-client` SDK. Never hand-roll fetch, never build OData query strings, never set the `Authorization` header yourself.** The SDK's scope clients (`client.me`, `client.team`, `client.all`) handle auth, query encoding, pagination, and error shapes.
 - Generated types come from `get_table_definition`, never guesses.
+
+### SDK usage — the only acceptable pattern
+
+```ts
+// src/lib/client.ts — one-time setup
+import { createClient } from "@truenorth-it/dataverse-client";
+import { useAuth0 } from "@auth0/auth0-react";
+
+export function useDataverseClient() {
+  const { getAccessTokenSilently } = useAuth0();
+  return createClient({
+    baseUrl: import.meta.env.VITE_API_BASE_URL,
+    getToken: () => getAccessTokenSilently(),
+  });
+}
+
+// src/services/caseApi.ts — read
+import type { DataverseClient } from "@truenorth-it/dataverse-client";
+import type { Case } from "../types/case";
+
+export async function fetchCases(client: DataverseClient) {
+  return client.me.list<Case>("case", {
+    select: ["incidentid", "ticketnumber", "title", "statuscode"],
+    orderBy: "modifiedon:desc",
+    top: 100,
+  });
+}
+
+export async function fetchCase(client: DataverseClient, id: string) {
+  return client.me.get<Case>("case", id);
+}
+
+// src/services/caseApi.ts — write
+export async function createCase(client: DataverseClient, input: Partial<Case>) {
+  return client.me.create("case", input);
+}
+
+export async function updateCase(
+  client: DataverseClient,
+  id: string,
+  patch: Partial<Case>,
+) {
+  return client.me.update("case", id, patch);
+}
+```
+
+Tier selection follows the user's `TIER` from the prompt:
+- `me` → `client.me.list/get/create/update` — caller's records only (needs `contactJoinPath`)
+- `team` → `client.team.*` — account-linked records (needs `teamJoinPath`)
+- `all` → `client.all.*` — admin-tier, unfiltered
+
+For picklist labels, the SDK automatically includes `<field>_label` alongside `<field>` in list responses when the schema declares the field as `choice`. Use those fields directly in the UI — no extra lookup needed.
+
+For filters:
+```ts
+// Single-field filter
+const active = await client.me.list<Case>("case", {
+  filter: { field: "statuscode", operator: "eq", value: 1 },
+});
+
+// Composite filter
+const urgent = await client.me.list<Case>("case", {
+  filter: { and: [
+    { field: "prioritycode", operator: "eq", value: 1 },
+    { field: "statecode", operator: "eq", value: 0 },
+  ]},
+});
+```
+
+Never construct OData strings by hand. The SDK builds `$filter` from the structured object.
 
 ### 7. Environment
 
