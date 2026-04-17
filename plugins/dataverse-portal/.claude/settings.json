@@ -3,7 +3,6 @@
     "allow": [
       "Bash(claude mcp:*)",
       "Bash(curl:*)",
-      "Bash(jq:*)",
       "Bash(npm create:*)",
       "Bash(npm install:*)",
       "Bash(npm run:*)",

@@ -34,10 +34,12 @@ For the URL, tier, and project name: state what you assumed in one sentence befo
 
 Hit `GET ${API_URL}/.well-known/oauth-protected-resource` (public). The response has everything you need to populate the scaffolded portal's `.env` later — don't guess, don't ask the user.
 
+**Parsing JSON — portability rule:** `jq` isn't installed on all platforms (Git Bash on Windows, many corporate envs). Use `node -e` — Node is always present because the portal the skill scaffolds is a Node project.
+
 ```bash
 WELL_KNOWN=$(curl -s "${API_URL}/.well-known/oauth-protected-resource")
-AUTH0_DOMAIN=$(echo "$WELL_KNOWN" | jq -r .auth0_domain)
-AUTH0_AUDIENCE_DEFAULT=$(echo "$WELL_KNOWN" | jq -r .auth0_audience)
+AUTH0_DOMAIN=$(echo "$WELL_KNOWN" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>process.stdout.write(JSON.parse(d).auth0_domain||''))")
+AUTH0_AUDIENCE_DEFAULT=$(echo "$WELL_KNOWN" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>process.stdout.write(JSON.parse(d).auth0_audience||''))")
 ```
 
 Field map:
@@ -58,7 +60,7 @@ claude mcp list
 
 Look for an entry whose URL matches `${API_URL}/api/v2/${TARGET_SCOPE}/mcp-admin`. If present, skip to step 3.
 
-If absent, run the device-code flow:
+If absent, run the device-code flow. **Critical: use `node -e` for JSON parsing, NOT `jq`** — `jq` is absent on Git Bash / Windows / many corporate envs and the skill dies silently.
 
 ```bash
 # a) Request codes
@@ -66,36 +68,46 @@ RESP=$(curl -s -X POST "${API_URL}/api/v2/device/code" \
   -H "Content-Type: application/json" \
   -d "{\"scope\":\"${TARGET_SCOPE}\",\"client_name\":\"claude-code\"}")
 
-USER_CODE=$(echo "$RESP" | jq -r .user_code)
-DEVICE_CODE=$(echo "$RESP" | jq -r .device_code)
-VERIFY_URL=$(echo "$RESP" | jq -r .verification_uri_complete)
-INTERVAL=$(echo "$RESP" | jq -r .interval)
+read USER_CODE DEVICE_CODE VERIFY_URL INTERVAL < <(echo "$RESP" | node -e "
+let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{
+  const j=JSON.parse(d);
+  process.stdout.write(j.user_code+' '+j.device_code+' '+j.verification_uri_complete+' '+j.interval);
+})")
 ```
 
 Print to the user, verbatim:
 
-> **Open this URL to authorize:**
+> **Open this URL to authorise:**
 > `<VERIFY_URL>`
 > Code: `<USER_CODE>` (valid for 10 minutes)
 > I'll wait here — come back when done.
 
-Poll for the key every `INTERVAL` seconds (typically 3). The loop exits on 200 (success), 403 (denied), or 410 (expired):
+Poll for the key every `INTERVAL` seconds. Use `curl -o body -w '%{http_code}'` to split body from status cleanly — avoid `head -n-1` which is GNU-only:
 
 ```bash
 while true; do
-  POLL=$(curl -s -w '\nHTTP:%{http_code}' -X POST "${API_URL}/api/v2/device/token" \
+  STATUS=$(curl -s -o /tmp/dc_body.json -w '%{http_code}' -X POST "${API_URL}/api/v2/device/token" \
     -H "Content-Type: application/json" \
     -d "{\"device_code\":\"${DEVICE_CODE}\"}")
-  STATUS=$(echo "$POLL" | tail -n1 | sed 's/HTTP://')
-  BODY=$(echo "$POLL" | head -n-1)
   case "$STATUS" in
-    200) MCP_KEY=$(echo "$BODY" | jq -r .mcp_key); break ;;
-    428) sleep "$INTERVAL" ;;
+    200)
+      MCP_KEY=$(node -e "process.stdout.write(JSON.parse(require('fs').readFileSync('/tmp/dc_body.json','utf8')).mcp_key)")
+      break
+      ;;
+    428) sleep "${INTERVAL:-3}" ;;
     403) echo "User denied"; exit 1 ;;
     410) echo "Code expired"; exit 1 ;;
-    *)   echo "Unexpected $STATUS"; exit 1 ;;
+    *)   echo "Unexpected $STATUS"; cat /tmp/dc_body.json; exit 1 ;;
   esac
 done
+```
+
+Windows path note: if `/tmp` isn't writable (unlikely under Git Bash which maps it, but possible), use `$HOME/.dv-dc-body.json` instead.
+
+Verify the key decoded correctly before calling `claude mcp add`:
+
+```bash
+[ -n "$MCP_KEY" ] && [ ${#MCP_KEY} -gt 50 ] || { echo "Empty MCP key — parsing failed"; exit 1; }
 ```
 
 Register the MCP:
@@ -322,7 +334,9 @@ npm run dev &       # background, report URL
 This skill shells out via `Bash` for:
 - `curl` — device flow + `/.well-known` + choices
 - `claude mcp list` / `claude mcp add`
-- `jq` — JSON extraction from curl responses
+- `node -e` — JSON extraction from curl responses (portable; works on Git Bash, macOS, Linux)
 - `npm` / `npx` — scaffold and type-check
+
+**Never use `jq`.** It isn't installed on Windows Git Bash or many corporate envs, and missing-command failures in mid-flow break the skill silently. Always reach for `node -e` when you need to parse JSON from a curl response.
 
 The plugin's `.claude/settings.json` pre-approves these so the skill doesn't pause for permissions mid-flow.
