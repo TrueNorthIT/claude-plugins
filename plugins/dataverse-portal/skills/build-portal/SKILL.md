@@ -411,7 +411,16 @@ Never construct OData strings by hand. The SDK builds `$filter` from the structu
 
 ### 7. Environment — including Auth0 SPA auto-creation
 
-Provision the Auth0 SPA app so the user never touches the Auth0 dashboard:
+**First, check for an existing SPA** to avoid hitting Auth0 tenant limits:
+
+```bash
+contact-admin auth0 list-spas --url "${API_URL}" --scope "${TARGET_SCOPE}" --json
+```
+
+Scan the `clients` array for an app whose name matches the project (or is close — e.g. `case-portal` matching a project called `case-portal`).
+
+- **Match found** — offer to reuse it: "Found existing Auth0 SPA `case-portal` (client_id: `abc123...`). Reuse it?" If yes, use that `clientId` and skip creation.
+- **No match** — create a new one:
 
 ```bash
 contact-admin auth0 create-spa "${PROJECT_NAME}" --url "${API_URL}" --scope "${TARGET_SCOPE}" --json
