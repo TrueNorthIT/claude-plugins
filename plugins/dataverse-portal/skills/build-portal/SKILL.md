@@ -101,26 +101,29 @@ Wait for their reply, then use their choice as `TARGET_SCOPE` for everything tha
 
 ### 1. Authenticate
 
-**Important:** The login command blocks while polling. Run it with a timeout so it doesn't hang forever. The command prints a verification URL that the user MUST see — Claude's Bash output often truncates long output, so you must extract the URL and display it yourself.
+This is a two-step process so the verification URL is visible to the user.
+
+**Step 1a — get the device code (instant):**
 
 ```bash
-contact-admin login --url "${API_URL}" --scope "${TARGET_SCOPE}" 2>&1
+contact-admin device-code --url "${API_URL}" --scope "${TARGET_SCOPE}" --json
 ```
 
-The output will contain a line like:
-```
-  https://api.dataverse-contact.tnapps.co.uk/device?code=XXXX-YYYY&scope=case-portal
-```
+This returns immediately with JSON containing `verificationUrl`, `userCode`, `deviceCode`, `interval`, and `expiresIn`. **Print the URL to the user as a message** — do NOT rely on Bash output being visible:
 
-**You MUST extract this URL from the output and print it prominently to the user as a message** — do not rely on the Bash output being visible, because Claude often collapses it. Display it like this:
-
-> **Open this URL to authorise:** https://api.dataverse-contact.tnapps.co.uk/device?code=XXXX-YYYY&scope=case-portal
+> **Open this URL to authorise:** `<verificationUrl>`
 >
 > Polling automatically — just approve in the browser and I'll continue.
 
-The CLI polls unattended until the user approves, then stores the key in `~/.contact-admin/keys.json`. Once the command completes with "Logged in", proceed immediately.
+**Step 1b — poll for approval (blocks):**
 
-If the CLI reports the user is already logged in for this URL + scope (key exists and hasn't expired), skip straight to step 2.
+```bash
+contact-admin device-poll --url "${API_URL}" --device-code "<deviceCode>" --interval <interval> --expires-in <expiresIn> --json
+```
+
+This blocks until the user approves, then stores the key in `~/.contact-admin/keys.json`. Parse the `--json` response for `scopeCreated` to know if the scope was just provisioned.
+
+If the user is already logged in for this URL + scope (key exists and hasn't expired), skip straight to step 2.
 
 ### 2. Orient
 
