@@ -155,10 +155,25 @@ Wait for their reply. Respect whatever they say — names, `default`, or `cancel
 
 For each table the portal needs (derived from the prompt — "case portal" → `incident` + `annotation` for notes; "booking portal" → `msdyn_bookableresourcebooking`; etc.):
 
-1. `discover_entity_details({ entity })` — live Dataverse metadata
-2. `scaffold_table({ entity })` — generate a SchemaHint draft
-3. `save_table_draft({ schema: <json> })` — persist
-4. `publish_tables({ tables: [<routeName>] })` — go live (auto-syncs Auth0 permissions)
+1. `discover_entity_details({ entity })` — live Dataverse metadata.
+
+2. `scaffold_table({ entity })` — generate a SchemaHint draft. **Read the response carefully**: alongside `schema`, it now returns `joinAnalysis` with `contactJoinCandidates`, `accountJoinCandidates`, `contactJoinAmbiguous`, and `accountJoinAmbiguous`, plus `hints[]` describing any ambiguity in plain English.
+
+3. **Always** `sample_data({ entity: <entitySetName>, top: 3 })` **before** saving. Look at the chosen `contactJoinPath[0].from` (and `teamJoinPath[0].from`) lookup field in each returned row — the values should be real GUIDs / populated names, not surprises.
+
+   - **Empty-table case:** if `sample_data` returns `count: 0`, don't block. This is normal on fresh dev environments and brand-new tables. Tell the user in one line: "No rows in `<entity>` yet — skipping data-level join verification. The join was chosen from metadata only; double-check once real data lands." Then continue.
+
+4. **Conditional confirmation:**
+   - If `joinAnalysis.contactJoinAmbiguous` OR `joinAnalysis.accountJoinAmbiguous` is `true` → **pause**. Present the chosen join, list every candidate, show the 3 sampled lookup values (or "no sample rows available — metadata only" if the table was empty), and ask the user in one sentence. Example:
+
+     > "On `incident` I found two contact joins: `customerid → contact` and `ownerid → contact`. I'm picking `customerid`. Sample rows show `customerid` = [Alice, Bob, (null)]. Confirm, or say which to use."
+
+     Wait for their reply. If they pick a different candidate, mutate `schema.contactJoinPath` / `schema.teamJoinPath` to that candidate's `path` before continuing.
+
+   - If neither flag is set (exactly one direct join each side) → don't ask. Print a one-line summary and continue: "Using `customerid` → contact, verified against 3 sample rows." (Or "…no rows yet, metadata only." if the table was empty.)
+
+5. `save_table_draft({ schema: <json> })` — persist.
+6. `publish_tables({ tables: [<routeName>] })` — go live (auto-syncs Auth0 permissions).
 
 For `default` or already-populated scopes, skip this step.
 
@@ -167,7 +182,7 @@ For `default` or already-populated scopes, skip this step.
 For each target table:
 - `get_table_definition({ table: <routeName> })` — canonical schema with fields/types/expands
 - Public HTTP: `GET ${API_URL}/api/v2/${TARGET_SCOPE}/choices/<table>` — picklist values (no auth)
-- Optionally `sample_data({ table, limit: 3 })` — real rows for sanity
+- `sample_data` was already called in step 4.3 for join verification; no need to re-run unless you want fresh rows
 
 Cache these for TypeScript type generation and SDK `select` lists.
 
@@ -354,6 +369,21 @@ If `grant_user_access` returns `found: false`, the user doesn't have an Auth0 ac
 ### "build me a case portal in scope case-portal"
 
 - Scope explicitly named. Skill checks `list_scopes` — not there. Confirms once: "Scope `case-portal` doesn't exist. Create it? (yes / no)". Proceeds on yes.
+
+### Ambiguous contact join — confirmation flow
+
+- User: "build me a portal for the `tn_project` table in scope `pm`".
+- Skill hits step 4.2: `scaffold_table({ entity: "tn_project" })` returns `joinAnalysis.contactJoinAmbiguous: true` because the entity has `ownerid → contact` and `tn_projectleadid → contact`.
+- Step 4.3: `sample_data({ entity: "tn_projects", top: 3 })` returns 3 rows. Skill pulls out the `tn_projectleadid` values (the scaffolder's pick) — they look populated.
+- Step 4.4: skill asks in one sentence: "I found two contact joins on `tn_project`: `tn_projectleadid → contact` and `ownerid → contact`. I'm picking `tn_projectleadid`. Sample rows show `tn_projectleadid` = [Sam, Jo, Priya]. Confirm, or say which to use."
+- User: "use ownerid". Skill mutates `schema.contactJoinPath` to the `ownerid` candidate's path, then proceeds to `save_table_draft` + `publish_tables`.
+
+### Brand-new empty table
+
+- User: "build me a portal for `tn_expense` in scope `expenses`".
+- Steps 4.1 + 4.2 run normally; `joinAnalysis.contactJoinAmbiguous: false` (only one direct lookup).
+- Step 4.3: `sample_data` returns `count: 0`. Skill prints: "No rows in `tn_expense` yet — skipping data-level join verification. The join was chosen from metadata only; double-check once real data lands."
+- Step 4.4 fast-path: "Using `tn_contactid` → contact (metadata only — empty table)." Continues without asking.
 
 ## Dependencies
 
