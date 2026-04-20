@@ -101,19 +101,24 @@ Wait for their reply, then use their choice as `TARGET_SCOPE` for everything tha
 
 ### 1. Authenticate
 
+**Important:** The login command blocks while polling. Run it with a timeout so it doesn't hang forever. The command prints a verification URL that the user MUST see — Claude's Bash output often truncates long output, so you must extract the URL and display it yourself.
+
 ```bash
-contact-admin login --url "${API_URL}" --scope "${TARGET_SCOPE}"
+contact-admin login --url "${API_URL}" --scope "${TARGET_SCOPE}" 2>&1
 ```
 
-This runs the device-code OAuth flow. It prints a URL for the user to approve in their browser, polls automatically, and stores the key locally in `~/.contact-admin/keys.json`. If the scope doesn't exist yet, it is auto-created when the user approves.
+The output will contain a line like:
+```
+  https://api.dataverse-contact.tnapps.co.uk/device?code=XXXX-YYYY&scope=case-portal
+```
 
-Print the verification URL to the user:
+**You MUST extract this URL from the output and print it prominently to the user as a message** — do not rely on the Bash output being visible, because Claude often collapses it. Display it like this:
 
-> **Open this URL to authorise:**
-> `<URL from CLI output>`
+> **Open this URL to authorise:** https://api.dataverse-contact.tnapps.co.uk/device?code=XXXX-YYYY&scope=case-portal
+>
 > Polling automatically — just approve in the browser and I'll continue.
 
-**Do NOT stop or wait for the user to come back.** The CLI polls unattended. Once it prints "Logged in", proceed immediately.
+The CLI polls unattended until the user approves, then stores the key in `~/.contact-admin/keys.json`. Once the command completes with "Logged in", proceed immediately.
 
 If the CLI reports the user is already logged in for this URL + scope (key exists and hasn't expired), skip straight to step 2.
 
