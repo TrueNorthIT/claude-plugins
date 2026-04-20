@@ -236,6 +236,109 @@ Non-negotiable rules:
 - **Always use the `@truenorth-it/dataverse-client` SDK. Never hand-roll fetch, never build OData query strings, never set the `Authorization` header yourself.** The SDK's scope clients (`client.me`, `client.team`, `client.all`) handle auth, query encoding, pagination, and error shapes.
 - Generated types come from `tables get`, never guesses.
 
+### Code quality — the scaffolded code must teach
+
+The generated code is the developer's first contact with the SDK and the API. Every file should make them feel like they already know how to extend it. This means:
+
+**Comment every SDK call** — not what it does (they can read code), but *why* this pattern and *what else they could do*:
+
+```ts
+// Fetch cases for the logged-in user. client.me automatically scopes
+// queries to records linked to the authenticated contact.
+// Switch to client.team for account-wide access, or client.all for admin.
+const cases = await client.me.list<Case>("case", {
+  select: ["incidentid", "ticketnumber", "title", "statuscode"],
+  orderBy: "modifiedon:desc",
+  top: 50,
+  // Add filters like this:
+  // filter: { field: "statuscode", operator: "eq", value: 1 },
+  //
+  // Or combine multiple:
+  // filter: { and: [
+  //   { field: "prioritycode", operator: "eq", value: 1 },
+  //   { field: "statecode", operator: "eq", value: 0 },
+  // ]},
+});
+```
+
+**Show the next move in comments** — every service function should hint at what the developer will want to do next:
+
+```ts
+export async function createCase(client: DataverseClient, input: Partial<Case>) {
+  // Creates a case auto-bound to the caller's contact (via createDefaults
+  // in the table schema). No need to set customerid manually.
+  //
+  // To attach a note after creating:
+  //   await createCaseNote(client, { incidentid: result.incidentid, notetext: "..." });
+  return client.me.create("case", input);
+}
+```
+
+**Include working examples in hook files** — show loading, error, empty states, and refresh:
+
+```ts
+export function useCases() {
+  const client = useDataverseClient();
+  const [cases, setCases] = useState<Case[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await fetchCases(client);
+      setCases(result.value);
+    } catch (err) {
+      // ApiError has .status and .message from the API response
+      setError(err instanceof Error ? err.message : "Failed to load cases");
+    } finally {
+      setLoading(false);
+    }
+  }, [client]);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  return { cases, loading, error, refresh };
+}
+```
+
+**Components should be a starting point, not a dead end.** Include TODO comments that map out the obvious next features:
+
+```tsx
+// TODO: Add pagination — the SDK returns @odata.nextLink when there
+//       are more results. Pass { top: 25 } and implement next/prev.
+//
+// TODO: Add inline status update — call updateCase(client, id, { statuscode: 5 })
+//       then refresh(). The SDK handles the PATCH request.
+//
+// TODO: Add search — use the filter option:
+//       filter: { field: "title", operator: "contains", value: searchTerm }
+```
+
+**Type files should document the shape** — explain what each field means and which are choice fields:
+
+```ts
+export interface Case {
+  incidentid: string;
+  ticketnumber: string;          // Auto-generated, e.g. "CAS-01234-X7Y8Z9"
+  title: string;
+  statuscode: number;            // Choice field — use statuscode_label for display
+  statuscode_label?: string;     // e.g. "In Progress", "Resolved", "Cancelled"
+  prioritycode: number;          // Choice: 1=High, 2=Normal, 3=Low
+  prioritycode_label?: string;
+  createdon: string;             // ISO 8601 datetime
+  modifiedon: string;
+  // Expanded from the contact lookup:
+  customerid_contact?: {
+    fullname: string;
+    emailaddress1: string;
+  };
+}
+```
+
+The goal: a developer reads the generated code for 10 minutes and thinks "I know exactly how to add the next feature."
+
 ### SDK usage — the only acceptable pattern
 
 ```ts
