@@ -80,14 +80,22 @@ Cache these for step 7.
 
 **Resolve `TARGET_SCOPE` now — before step 1.** Authentication needs the scope.
 
-If the user named a scope in the prompt (e.g. "in scope case-portal"), use it. Otherwise, use the existing scopes to guide the choice:
+If the user named a scope in the prompt (e.g. "in scope case-portal"), use it. Otherwise, present a **numbered list** so the user can pick with a single keystroke:
 
-- If the portal noun maps to an **existing** scope (e.g. "case portal" and `case-portal` is in the list), use it — no need to ask.
-- If only `default` exists, ask whether to use it or create a new one.
-- If multiple scopes exist, show the list and ask which to use (or create new).
+Infer a suggested new scope name from the portal noun ("case portal" → `case-portal`, "bookings" → `bookings`, etc.). Then present:
 
-Ask in ONE sentence, e.g.:
-> "This API has scopes: `default`, `case-portal`. Use one of those, or create a new scope? (e.g. `bookings-pilot`)"
+> **Which scope for this portal?**
+> 1. `default` (existing)
+> 2. `citizenbooking` (existing)
+> 3. Create new scope `case-portal`
+>
+> Pick a number or type a scope name:
+
+Rules:
+- List every existing scope as a numbered option.
+- The last option is always "Create new scope `<suggested-name>`".
+- If the portal noun matches an existing scope exactly, highlight it: e.g. "1. `case-portal` (existing — matches your portal name) **recommended**".
+- Accept a number, an existing scope name, or a new name the user types.
 
 Wait for their reply, then use their choice as `TARGET_SCOPE` for everything that follows. **Do not proceed to step 1 until `TARGET_SCOPE` is decided.**
 
