@@ -40,12 +40,12 @@ For the URL, tier, and project name: state what you assumed in one sentence befo
 
 ## Version check
 
-**Expected plugin version: 0.8.0**
+**Expected plugin version: 0.9.0**
 
 Before doing any work, verify the installed plugin version. Read the plugin manifest at `../../.claude-plugin/plugin.json` (relative to this skill file) using the Read tool:
 
-- If the `version` field matches `0.8.0` — proceed.
-- If the `version` field is **older** — tell the user: "Your dataverse-portal plugin is v`<installed>` but this skill expects v0.8.0. Run `/plugin marketplace update truenorthit` and then `/reload-plugins` to get the latest version." Then stop.
+- If the `version` field matches `0.9.0` — proceed.
+- If the `version` field is **older** — tell the user: "Your dataverse-portal plugin is v`<installed>` but this skill expects v0.9.0. Run `/plugin marketplace update truenorthit` and then `/reload-plugins` to get the latest version." Then stop.
 - If the file cannot be read — warn the user but proceed.
 
 ## Workflow
@@ -163,6 +163,29 @@ If neither flag is set (exactly one direct join each side), don't ask — just p
 **Empty-table case:** if `sample-data` returns `count: 0`, don't block. Tell the user: "No rows in `<entity>` yet — join was chosen from metadata only; double-check once real data lands."
 
 Skip tables that are already published.
+
+#### Related tables and aliased routes
+
+A portal often needs child records — e.g. a case portal needs **case notes** (annotations linked to cases). In the API, these are handled as **aliased routes**: a filtered view of a shared Dataverse entity.
+
+The naming convention encodes the relationship: `<parent><child>`. For example:
+- **`casenotes`** — notes (`annotation` entity) filtered to those linked to cases (`objecttypecode eq 'incident'`)
+- **`caseemails`** — activities (`activitypointer` entity) filtered to emails on cases
+- **`contactactivities`** — activities filtered to those linked to contacts
+
+Each aliased route has:
+- **`filters`** — always-on OData filters that restrict the entity (e.g. `objecttypecode eq 'incident'` for case notes)
+- **`parentTable`** — declares which table owns the child records (e.g. `{ table: "case", navigationProperty: "objectid_incident" }`)
+- **`contactJoinPath`** — a multi-hop join: child → parent → contact (e.g. annotation → incident → contact)
+
+When the portal needs a child table like case notes, run `setup-table` for the child entity the same way as any other table. The scaffold will detect the parent relationship and set up the filters and join paths automatically.
+
+For the frontend, use the SDK's `filter` option to scope child records to their parent:
+```ts
+const notes = await client.me.list<CaseNote>("casenotes", {
+  filter: { field: "incidentid", operator: "eq", value: caseId },
+});
+```
 
 ### 5. Inspect published schema
 
