@@ -1,7 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(claude mcp:*)",
+      "Bash(contact-admin:*)",
       "Bash(curl:*)",
       "Bash(npm create:*)",
       "Bash(npm install:*)",

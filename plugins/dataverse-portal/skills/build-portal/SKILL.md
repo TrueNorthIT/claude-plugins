@@ -1,11 +1,21 @@
 ---
 name: build-portal
-description: Scaffold a new React + TypeScript + Tailwind + Auth0 SPA that consumes the Dataverse Contact API, end-to-end from a single prompt. Use when the user asks to build, scaffold, or create a portal / UI / app / frontend against a Dataverse table — e.g. "build me a case portal", "build me a case portal using https://api.dataverse-contact.tnapps.co.uk", "scaffold a UI for the booking table in scope pilot", "create a contacts app". The skill auto-registers the admin MCP via device-code OAuth if it's not already connected.
+description: Scaffold a new React + TypeScript + Tailwind + Auth0 SPA that consumes the Dataverse Contact API, end-to-end from a single prompt. Use when the user asks to build, scaffold, or create a portal / UI / app / frontend against a Dataverse table — e.g. "build me a case portal", "build me a case portal using https://api.dataverse-contact.tnapps.co.uk", "scaffold a UI for the booking table in scope pilot", "create a contacts app". The skill authenticates via the @truenorth-it/contact-admin CLI — no MCP registration needed.
 ---
 
 # build-portal
 
-End-to-end scaffold of a Vite + React + TypeScript + Tailwind + Auth0 SPA against the Dataverse Contact API. The skill handles everything — API discovery, MCP registration via device-code OAuth, scope provisioning if requested, table scaffolding, and the final frontend.
+End-to-end scaffold of a Vite + React + TypeScript + Tailwind + Auth0 SPA against the Dataverse Contact API. The skill handles everything — API discovery, authentication, scope provisioning if requested, table scaffolding, and the final frontend.
+
+## Prerequisites
+
+This skill requires the `@truenorth-it/contact-admin` CLI. If not already installed globally, install it at the start:
+
+```bash
+npm install -g @truenorth-it/contact-admin
+```
+
+All admin operations use this CLI instead of MCP. No MCP registration is needed.
 
 ## Trigger-time data from the prompt
 
@@ -14,7 +24,7 @@ End-to-end scaffold of a Vite + React + TypeScript + Tailwind + Auth0 SPA agains
 | API URL | Any `https://…` URL in the prompt whose host looks like an API endpoint | `API_URL` — the base for all HTTP + MCP endpoints |
 | Scope | "in scope X" / "scope=X" / "use scope X" | `TARGET_SCOPE` — URL scope + provisioning target |
 | Access tier | "me" / "team" / "all" | `TIER` |
-| Target table | "case portal" → `incident`; "booking" → `msdyn_bookableresourcebooking`; etc. | Drives scaffold_table calls |
+| Target table | "case portal" → `incident`; "booking" → `msdyn_bookableresourcebooking`; etc. | Drives setup-table calls |
 | Project name | Repeats the portal noun (`case-portal`, `bookings-pilot`) or explicit "project X" | Folder name + Vite project name |
 
 Defaults when absent:
@@ -22,27 +32,43 @@ Defaults when absent:
 | Default | Value |
 |---|---|
 | `API_URL` | `https://api.dataverse-contact.tnapps.co.uk` |
-| `TARGET_SCOPE` | **asked** — see step 3. Don't silently default to `default` — the user gets a one-question choice between `default` and a sensibly-named new scope. |
+| `TARGET_SCOPE` | **asked** — see step 0. Don't silently default to `default` — the user gets a one-question choice between `default` and a sensibly-named new scope. |
 | `TIER` | `me` |
 | Project name | slugified portal noun |
 
 For the URL, tier, and project name: state what you assumed in one sentence before work starts — don't interrogate. Only the scope question is interactive.
 
+## Version check
+
+**Expected plugin version: 0.8.0**
+
+Before doing any work, verify the installed plugin version. Read the plugin manifest at `../../.claude-plugin/plugin.json` (relative to this skill file) using the Read tool:
+
+- If the `version` field matches `0.8.0` — proceed.
+- If the `version` field is **older** — tell the user: "Your dataverse-portal plugin is v`<installed>` but this skill expects v0.8.0. Run `/plugin marketplace update truenorthit` and then `/reload-plugins` to get the latest version." Then stop.
+- If the file cannot be read — warn the user but proceed.
+
 ## Workflow
 
-### 0. Discover the deployment
+All admin operations use the `contact-admin` CLI with `--json` for structured output. The global flags `--url` and `--scope` are passed to every command. For brevity the examples below assume `API_URL` and `TARGET_SCOPE` are set as shell variables.
 
-Hit `GET ${API_URL}/.well-known/oauth-protected-resource` (public). The response has everything you need to populate the scaffolded portal's `.env` later — don't guess, don't ask the user.
+### 0. Discover the deployment and resolve the scope
 
-**Parsing JSON — portability rule:** `jq` isn't installed on all platforms (Git Bash on Windows, many corporate envs). Use `node -e` — Node is always present because the portal the skill scaffolds is a Node project.
+Two parallel calls (both public, no auth):
 
 ```bash
+# Auth0 config for the portal's .env
 WELL_KNOWN=$(curl -s "${API_URL}/.well-known/oauth-protected-resource")
 AUTH0_DOMAIN=$(echo "$WELL_KNOWN" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>process.stdout.write(JSON.parse(d).auth0_domain||''))")
 AUTH0_AUDIENCE_DEFAULT=$(echo "$WELL_KNOWN" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>process.stdout.write(JSON.parse(d).auth0_audience||''))")
 ```
 
-Field map:
+```bash
+# Existing scopes
+contact-admin scopes list --url "${API_URL}" --json
+```
+
+Field map from `.well-known`:
 
 | JSON field | Goes into portal `.env` as |
 |---|---|
@@ -52,137 +78,103 @@ Field map:
 
 Cache these for step 7.
 
-### 1. Ensure the admin MCP is registered
+**Resolve `TARGET_SCOPE` now — before step 1.** Authentication needs the scope.
+
+If the user named a scope in the prompt (e.g. "in scope case-portal"), use it. Otherwise, use the existing scopes to guide the choice:
+
+- If the portal noun maps to an **existing** scope (e.g. "case portal" and `case-portal` is in the list), use it — no need to ask.
+- If only `default` exists, ask whether to use it or create a new one.
+- If multiple scopes exist, show the list and ask which to use (or create new).
+
+Ask in ONE sentence, e.g.:
+> "This API has scopes: `default`, `case-portal`. Use one of those, or create a new scope? (e.g. `bookings-pilot`)"
+
+Wait for their reply, then use their choice as `TARGET_SCOPE` for everything that follows. **Do not proceed to step 1 until `TARGET_SCOPE` is decided.**
+
+### 1. Authenticate
 
 ```bash
-claude mcp list
+contact-admin login --url "${API_URL}" --scope "${TARGET_SCOPE}"
 ```
 
-Look for an entry whose URL matches `${API_URL}/api/v2/${TARGET_SCOPE}/mcp-admin`. If present, skip to step 3.
+This runs the device-code OAuth flow. It prints a URL for the user to approve in their browser, polls automatically, and stores the key locally in `~/.contact-admin/keys.json`. If the scope doesn't exist yet, it is auto-created when the user approves.
 
-If absent, run the device-code flow. **Critical: use `node -e` for JSON parsing, NOT `jq`** — `jq` is absent on Git Bash / Windows / many corporate envs and the skill dies silently.
-
-```bash
-# a) Request codes
-RESP=$(curl -s -X POST "${API_URL}/api/v2/device/code" \
-  -H "Content-Type: application/json" \
-  -d "{\"scope\":\"${TARGET_SCOPE}\",\"client_name\":\"claude-code\"}")
-
-read USER_CODE DEVICE_CODE VERIFY_URL INTERVAL < <(echo "$RESP" | node -e "
-let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{
-  const j=JSON.parse(d);
-  process.stdout.write(j.user_code+' '+j.device_code+' '+j.verification_uri_complete+' '+j.interval);
-})")
-```
-
-Print to the user, verbatim:
+Print the verification URL to the user:
 
 > **Open this URL to authorise:**
-> `<VERIFY_URL>`
-> Code: `<USER_CODE>` (valid for 10 minutes)
-> I'll wait here — come back when done.
+> `<URL from CLI output>`
+> Polling automatically — just approve in the browser and I'll continue.
 
-Poll for the key every `INTERVAL` seconds. Use `curl -o body -w '%{http_code}'` to split body from status cleanly — avoid `head -n-1` which is GNU-only:
+**Do NOT stop or wait for the user to come back.** The CLI polls unattended. Once it prints "Logged in", proceed immediately.
 
-```bash
-while true; do
-  STATUS=$(curl -s -o /tmp/dc_body.json -w '%{http_code}' -X POST "${API_URL}/api/v2/device/token" \
-    -H "Content-Type: application/json" \
-    -d "{\"device_code\":\"${DEVICE_CODE}\"}")
-  case "$STATUS" in
-    200)
-      MCP_KEY=$(node -e "process.stdout.write(JSON.parse(require('fs').readFileSync('/tmp/dc_body.json','utf8')).mcp_key)")
-      break
-      ;;
-    428) sleep "${INTERVAL:-3}" ;;
-    403) echo "User denied"; exit 1 ;;
-    410) echo "Code expired"; exit 1 ;;
-    *)   echo "Unexpected $STATUS"; cat /tmp/dc_body.json; exit 1 ;;
-  esac
-done
-```
+If the CLI reports the user is already logged in for this URL + scope (key exists and hasn't expired), skip straight to step 2.
 
-Windows path note: if `/tmp` isn't writable (unlikely under Git Bash which maps it, but possible), use `$HOME/.dv-dc-body.json` instead.
-
-Verify the key decoded correctly before calling `claude mcp add`:
+### 2. Orient
 
 ```bash
-[ -n "$MCP_KEY" ] && [ ${#MCP_KEY} -gt 50 ] || { echo "Empty MCP key — parsing failed"; exit 1; }
+contact-admin whoami --url "${API_URL}" --scope "${TARGET_SCOPE}" --json
 ```
 
-Register the MCP:
+Check:
+- `capabilities.canAdminCurrentScope` — required. If false, stop.
+- `currentScope` — confirms the scope matches your target.
+
+### 3. Create scope if needed
+
+If the target scope didn't exist and wasn't auto-created during login (e.g. user logged in with an existing key for a different scope), create it:
 
 ```bash
-claude mcp add --transport http "dataverse-${TARGET_SCOPE}" \
-  "${API_URL}/api/v2/${TARGET_SCOPE}/mcp-admin" \
-  -H "Authorization: Bearer ${MCP_KEY}"
+contact-admin scopes create "${TARGET_SCOPE}" --url "${API_URL}" --scope "${TARGET_SCOPE}" --json
 ```
 
-The skill uses `Bash` for all of the above — no user typing required beyond visiting the verification URL once.
+If the scope already exists, skip this step.
 
-### 2. Orient — call `whoami` via the MCP
+### 4. Populate tables
 
-Read:
-- `capabilities.canAdminTables` — required. If false, stop.
-- `capabilities.canCreateScopes` — required only if `TARGET_SCOPE` is new.
-- `currentScope` — confirms the URL-bound scope matches your target.
+First, check what's already published:
 
-### 3. Resolve the scope — infer + confirm
+```bash
+contact-admin tables list --url "${API_URL}" --scope "${TARGET_SCOPE}" --json
+```
 
-Call `list_scopes` to see what already exists. Then branch on whether the user named a scope in the prompt:
+For each table the portal needs (derived from the prompt — "case portal" → `incident` + `annotation` for notes; "booking portal" → `msdyn_bookableresourcebooking`; etc.), if NOT already published, run:
 
-**Path A — user did NOT name a scope.** Infer a candidate from the portal noun:
-- "case portal" → suggest `case-portal`
-- "booking portal" / "bookings app" → suggest `bookings`
-- "contacts app" → suggest `contacts`
-- "pm tool" / "project portal" → suggest `pm` (or whatever fits)
-- Ambiguous nouns (e.g. "dashboard") → just suggest `default`
+```bash
+contact-admin setup-table <entity> --url "${API_URL}" --scope "${TARGET_SCOPE}" --json
+```
 
-Ask the user in ONE sentence, offering two real options:
+This single command discovers the entity from Dataverse, scaffolds the schema, saves the draft, and publishes — all in one step.
 
-> "I'll put this portal in scope `default` (shared with existing tables — case, contact, account, etc.). Or I can create a new scope `case-portal` just for this project. Which?"
+**Join-ambiguity handling:** `setup-table` auto-publishes without pausing. If the scaffold response includes ambiguous join paths (multiple contact or account lookups), the CLI output will include `joinAnalysis` with hints. When `--json` is used, check the response for `joinAnalysis.contactJoinAmbiguous` or `joinAnalysis.accountJoinAmbiguous`. If either is `true`:
 
-Wait for their reply. Respect whatever they say — names, `default`, or `cancel`. Don't proceed until they've chosen.
+1. Run `contact-admin tables sample-data <entity> --top 3 --json` to inspect the chosen join's lookup values.
+2. **Pause and ask the user** in one sentence, e.g.:
+   > "On `incident` I found two contact joins: `customerid → contact` and `ownerid → contact`. The scaffold picked `customerid`. Sample rows show `customerid` = [Alice, Bob, (null)]. Confirm, or say which to use."
+3. If the user picks a different join, use the granular commands instead:
+   ```bash
+   contact-admin tables scaffold <entity> --json   # get the schema
+   # modify schema.contactJoinPath / schema.teamJoinPath
+   contact-admin tables save-draft <routeName> --schema '<modified-json>'
+   contact-admin tables publish --tables <routeName>
+   ```
 
-**Path B — user DID name a scope** ("in scope X", "scope=X"):
-- If X is in `list_scopes` → use it, proceed.
-- If X is missing → confirm once: "Scope `X` doesn't exist. Create it? (say 'yes' or pick a different name)". On yes + `canCreateScopes`, call `create_scope()`. On no, fall back to `default`.
+If neither flag is set (exactly one direct join each side), don't ask — just proceed.
 
-**Permission check before any create:**
-- `canCreateScopes` (from `whoami`) must be true to provision a scope. If false and the user wanted a new one, stop and explain: "You need `scope:admin` on the admin API. Ask an operator, or use the `default` scope."
+**Empty-table case:** if `sample-data` returns `count: 0`, don't block. Tell the user: "No rows in `<entity>` yet — join was chosen from metadata only; double-check once real data lands."
 
-### 4. Populate tables (only for newly created scopes)
-
-For each table the portal needs (derived from the prompt — "case portal" → `incident` + `annotation` for notes; "booking portal" → `msdyn_bookableresourcebooking`; etc.):
-
-1. `discover_entity_details({ entity })` — live Dataverse metadata.
-
-2. `scaffold_table({ entity })` — generate a SchemaHint draft. **Read the response carefully**: alongside `schema`, it now returns `joinAnalysis` with `contactJoinCandidates`, `accountJoinCandidates`, `contactJoinAmbiguous`, and `accountJoinAmbiguous`, plus `hints[]` describing any ambiguity in plain English.
-
-3. **Always** `sample_data({ entity: <entitySetName>, top: 3 })` **before** saving. Look at the chosen `contactJoinPath[0].from` (and `teamJoinPath[0].from`) lookup field in each returned row — the values should be real GUIDs / populated names, not surprises.
-
-   - **Empty-table case:** if `sample_data` returns `count: 0`, don't block. This is normal on fresh dev environments and brand-new tables. Tell the user in one line: "No rows in `<entity>` yet — skipping data-level join verification. The join was chosen from metadata only; double-check once real data lands." Then continue.
-
-4. **Conditional confirmation:**
-   - If `joinAnalysis.contactJoinAmbiguous` OR `joinAnalysis.accountJoinAmbiguous` is `true` → **pause**. Present the chosen join, list every candidate, show the 3 sampled lookup values (or "no sample rows available — metadata only" if the table was empty), and ask the user in one sentence. Example:
-
-     > "On `incident` I found two contact joins: `customerid → contact` and `ownerid → contact`. I'm picking `customerid`. Sample rows show `customerid` = [Alice, Bob, (null)]. Confirm, or say which to use."
-
-     Wait for their reply. If they pick a different candidate, mutate `schema.contactJoinPath` / `schema.teamJoinPath` to that candidate's `path` before continuing.
-
-   - If neither flag is set (exactly one direct join each side) → don't ask. Print a one-line summary and continue: "Using `customerid` → contact, verified against 3 sample rows." (Or "…no rows yet, metadata only." if the table was empty.)
-
-5. `save_table_draft({ schema: <json> })` — persist.
-6. `publish_tables({ tables: [<routeName>] })` — go live (auto-syncs Auth0 permissions).
-
-For `default` or already-populated scopes, skip this step.
+Skip tables that are already published.
 
 ### 5. Inspect published schema
 
 For each target table:
-- `get_table_definition({ table: <routeName> })` — canonical schema with fields/types/expands
-- Public HTTP: `GET ${API_URL}/api/v2/${TARGET_SCOPE}/choices/<table>` — picklist values (no auth)
-- `sample_data` was already called in step 4.3 for join verification; no need to re-run unless you want fresh rows
+
+```bash
+# Full schema with fields/types/expands
+contact-admin tables get <routeName> --url "${API_URL}" --scope "${TARGET_SCOPE}" --json
+
+# Picklist values (public, no auth)
+curl -s "${API_URL}/api/v2/${TARGET_SCOPE}/choices/<routeName>"
+```
 
 Cache these for TypeScript type generation and SDK `select` lists.
 
@@ -209,7 +201,7 @@ src/
 ├── index.css                ← Tailwind @import
 ├── services/<table>Api.ts   ← SDK-based (fetchX, createX, updateX)
 ├── hooks/use<Table>.ts      ← React hook for data + state
-├── types/<table>.ts         ← types derived from get_table_definition
+├── types/<table>.ts         ← types derived from tables get
 └── components/*.tsx         ← LoginScreen, Header, <Table>Table, <Table>Detail
 ```
 
@@ -219,7 +211,7 @@ Non-negotiable rules:
 - One concern per file.
 - No barrel exports.
 - **Always use the `@truenorth-it/dataverse-client` SDK. Never hand-roll fetch, never build OData query strings, never set the `Authorization` header yourself.** The SDK's scope clients (`client.me`, `client.team`, `client.all`) handle auth, query encoding, pagination, and error shapes.
-- Generated types come from `get_table_definition`, never guesses.
+- Generated types come from `tables get`, never guesses.
 
 ### SDK usage — the only acceptable pattern
 
@@ -293,27 +285,26 @@ Never construct OData strings by hand. The SDK builds `$filter` from the structu
 
 ### 7. Environment — including Auth0 SPA auto-creation
 
-Call `create_spa_client` via the admin MCP to provision the Auth0 app (PKCE, localhost:5173 callbacks) so the user never touches the Auth0 dashboard:
+Provision the Auth0 SPA app so the user never touches the Auth0 dashboard:
 
-```
-create_spa_client({ name: "<project-name>" })
-→ { clientId: "abc123..." }
+```bash
+contact-admin auth0 create-spa "${PROJECT_NAME}" --url "${API_URL}" --scope "${TARGET_SCOPE}" --json
 ```
 
-Write `.env.example` and `.env` with **every value filled in**:
+The response includes `clientId`. Write `.env.example` and `.env` with **every value filled in**:
 
 ```
 VITE_AUTH0_DOMAIN=${AUTH0_DOMAIN}
-VITE_AUTH0_CLIENT_ID=<clientId from create_spa_client>
+VITE_AUTH0_CLIENT_ID=<clientId from create-spa>
 VITE_AUTH0_AUDIENCE=${AUTH0_AUDIENCE_DEFAULT}         # for default scope
 # or for a named scope:
 VITE_AUTH0_AUDIENCE=${AUTH0_AUDIENCE_DEFAULT}/${TARGET_SCOPE}
 VITE_API_BASE_URL=${API_URL}
 ```
 
-No hardcoded tenant names, no blank Client ID, no "go copy-paste from Auth0". Everything comes from `/.well-known/oauth-protected-resource` + the `create_spa_client` response.
+No hardcoded tenant names, no blank Client ID, no "go copy-paste from Auth0". Everything comes from `/.well-known/oauth-protected-resource` + the `create-spa` response.
 
-**Production URL (optional):** if the user specifies a prod URL (e.g. "deploy to vercel" later), pass `extraUrls: ["https://<prod>.vercel.app"]` to `create_spa_client` so the Auth0 app is pre-registered for that origin too. Or call `create_spa_client` again after deployment — the tool accepts arbitrary URLs.
+**Production URL (optional):** if the user specifies a prod URL (e.g. "deploy to vercel" later), pass `--extra-urls https://<prod>.vercel.app` to `auth0 create-spa` so the Auth0 app is pre-registered for that origin too.
 
 ### 8. Run & verify
 
@@ -326,9 +317,9 @@ npm run dev &       # background, report URL
 
 After confirming the scaffold, ask the user in one sentence whether to add a user now:
 
-> ✓ Auth0 SPA app `<project-name>` created (client_id: `<short-prefix>…`) with localhost:5173 pre-authorised. Reload `http://localhost:5173` when ready.
+> Auth0 SPA app `<project-name>` created (client_id: `<short-prefix>...`) with localhost:5173 pre-authorised. Reload `http://localhost:5173` when ready.
 >
-> **Want me to grant access to a user right now?** Give me an email and I'll call `grant_user_access` — they'll be able to log in immediately with a sensible starter permission set. (Or skip this, and do it in the Auth0 dashboard later.)
+> **Want me to grant access to a user right now?** Give me an email and I'll grant a sensible starter permission set — they'll be able to log in immediately. (Or skip this, and do it in the Auth0 dashboard later.)
 
 If the user says yes with an email:
 
@@ -338,37 +329,48 @@ If the user says yes with an email:
    - `<table>:create` (create records auto-bound to me)
    - `<table>:lookup` (resolve lookups)
    - Repeat for related tables (e.g. `annotation` for case portals)
-2. Call `grant_user_access({ email, permissions: [...] })`. Scope defaults to URL-bound.
+2. Grant the permissions:
+   ```bash
+   contact-admin auth0 grant-access "<email>" \
+     --permissions "<table>,<table>:write,<table>:create,<table>:lookup" \
+     --url "${API_URL}" --scope "${TARGET_SCOPE}" --json
+   ```
 3. Relay the response:
-   > ✓ Granted 6 permissions to steve@drakey.co.uk on scope `case-portal`.
+   > Granted 6 permissions to steve@drakey.co.uk on scope `case-portal`.
    > They need to log out / log back in before the new token picks up the perms. If they already minted an MCP key, tell them to regenerate — keys snapshot perms at issuance.
 
 If the user wants team-tier or admin-tier access, expand the list accordingly (e.g. add `<table>:team` + `<table>:write:team`, or `<table>:all` + `<table>:write:all`).
 
-If `grant_user_access` returns `found: false`, the user doesn't have an Auth0 account yet — tell the caller to invite them via the Auth0 dashboard (Users → Create User) and re-run.
+If `grant-access` returns `found: false`, the user doesn't have an Auth0 account yet — tell the caller to invite them via the Auth0 dashboard (Users → Create User) and re-run.
 
 ## Worked examples
 
 ### "build me a case portal using https://api.dataverse-contact.tnapps.co.uk"
 
 - `API_URL` = provided; `TARGET_SCOPE` not specified.
-- Fetches `/.well-known`, device flow if no MCP, `whoami` confirms perms.
-- `list_scopes` returns the existing ones. Skill asks: "I can put this in scope `default` (shared — uses existing case/contact tables) or create a new scope `case-portal` just for this project. Which?"
+- `contact-admin scopes list` returns: default, case-portal, ...
+- Skill asks: "This API has scopes: default, case-portal. Use one of those, or create a new scope?"
 - User: "default".
-- Skill uses existing `incident` + `annotation` tables, scaffolds the frontend. One prompt, one browser click to authorize, one sentence of confirmation.
+- `contact-admin login --scope default` — stores key.
+- `contact-admin tables list` finds existing `incident` + `annotation` — no setup-table needed.
+- Scaffolds frontend. One prompt, one browser click, done.
 
 ### "build me a bookings portal"
 
-- `API_URL` = default (skill's built-in); no scope in prompt.
+- `API_URL` = default; no scope in prompt.
+- `contact-admin scopes list` returns: default.
 - Skill asks: "Put this in `default` or create a new scope `bookings`?"
 - User: "new scope called `bookings-pilot`".
-- Skill: `create_scope({ name: "bookings-pilot" })` → provisions Auth0 resource server.
-- `scaffold_table(msdyn_bookableresourcebooking)` + `save_table_draft` + `publish_tables`.
+- `contact-admin login --scope bookings-pilot` — scope auto-created on approval.
+- `contact-admin setup-table msdyn_bookableresourcebooking` — scaffolds, saves, publishes.
 - Scaffolds portal targeting `/api/v2/bookings-pilot/` with audience `https://tn-dataverse-contact-api/bookings-pilot`.
 
 ### "build me a case portal in scope case-portal"
 
-- Scope explicitly named. Skill checks `list_scopes` — not there. Confirms once: "Scope `case-portal` doesn't exist. Create it? (yes / no)". Proceeds on yes.
+- Scope explicitly named.
+- `contact-admin login --scope case-portal` — scope auto-created on approval if it doesn't exist.
+- `contact-admin setup-table incident` + `contact-admin setup-table annotation` — populates tables.
+- Scaffolds frontend.
 
 ### Ambiguous contact join — confirmation flow
 
@@ -388,8 +390,8 @@ If `grant_user_access` returns `found: false`, the user doesn't have an Auth0 ac
 ## Dependencies
 
 This skill shells out via `Bash` for:
-- `curl` — device flow + `/.well-known` + choices
-- `claude mcp list` / `claude mcp add`
+- `contact-admin` — all admin operations (auth, scopes, tables, Auth0)
+- `curl` — `/.well-known` discovery + choices endpoint
 - `node -e` — JSON extraction from curl responses (portable; works on Git Bash, macOS, Linux)
 - `npm` / `npx` — scaffold and type-check
 
