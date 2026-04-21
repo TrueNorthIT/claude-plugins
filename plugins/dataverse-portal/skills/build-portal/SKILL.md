@@ -366,7 +366,7 @@ export function useCases() {
     setError(null);
     try {
       const result = await fetchCases(client);
-      setCases(result.value);
+      setCases(result.data);
     } catch (err) {
       // ApiError has .status and .message from the API response
       setError(err instanceof Error ? err.message : "Failed to load cases");
