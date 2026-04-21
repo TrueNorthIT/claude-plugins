@@ -235,7 +235,30 @@ contact-admin setup-table <entity> --url "${API_URL}" --scope "${TARGET_SCOPE}" 
 
 **Empty-table case:** if `sample-data` returns `count: 0`, don't block. Tell the user: "No rows in `<entity>` yet — join was chosen from metadata only; double-check once real data lands."
 
-### 5. Inspect published schema
+### 5. Verify tables return data
+
+After publishing, smoke-test every table through the full API pipeline:
+
+```bash
+contact-admin tables test-query <routeName> --url "${API_URL}" --scope "${TARGET_SCOPE}" --json
+```
+
+This runs the query through config filters, join paths, and OData building — exactly like a real API request. If it returns records, the table works. If it returns an error or 0 records, the schema is broken (wrong join path, bad filter, missing field config).
+
+To simulate a specific user's view:
+```bash
+# Simulate /me — pass a Dataverse contact GUID
+contact-admin tables test-query <routeName> --tier me --contact-id <guid> --url "${API_URL}" --scope "${TARGET_SCOPE}" --json
+
+# Simulate /team — pass an account GUID
+contact-admin tables test-query <routeName> --tier team --account-id <guid> --url "${API_URL}" --scope "${TARGET_SCOPE}" --json
+```
+
+If `test-query` returns 0 records with no error, the table config is valid but there's no matching data (or the join path doesn't connect to any records). Tell the user.
+
+If `test-query` returns a Dataverse error, the schema needs fixing — read the error message (e.g. "Could not find property X") and fix the published schema before proceeding.
+
+### 6. Inspect published schema
 
 For each target table:
 
