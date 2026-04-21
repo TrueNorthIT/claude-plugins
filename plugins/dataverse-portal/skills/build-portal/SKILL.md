@@ -230,19 +230,26 @@ npm install @auth0/auth0-react @truenorth-it/dataverse-client
 npm install -D tailwindcss @tailwindcss/vite
 ```
 
-Mirror the layout of `dataverse-example-case-portal` — either local sibling dir or `WebFetch` from `https://raw.githubusercontent.com/TrueNorthIT/dataverse-example-case-portal/main/...`:
+**Do NOT copy, clone, or fetch files from the example portal repo or any other repo.** Generate all code from scratch based on the table schema from step 5. The file layout should be:
 
 ```
 src/
-├── App.tsx                  ← Auth0 gate + layout
+├── App.tsx                  ← Auth0 gate + router
 ├── main.tsx                 ← Auth0Provider wrapper
 ├── env.ts                   ← requireEnvVar() for four VITE_* vars
 ├── index.css                ← Tailwind @import
+├── lib/client.ts            ← useDataverseClient() hook
 ├── services/<table>Api.ts   ← SDK-based (fetchX, createX, updateX)
 ├── hooks/use<Table>.ts      ← React hook for data + state
 ├── types/<table>.ts         ← types derived from tables get
-└── components/*.tsx         ← LoginScreen, Header, <Table>Table, <Table>Detail
+└── components/
+    ├── LoginScreen.tsx
+    ├── Header.tsx
+    ├── <Table>List.tsx       ← list view with loading/error/empty states
+    └── <Table>Detail.tsx     ← detail view
 ```
+
+Keep it flat — no extra folders like `pages/`, `layouts/`, `utils/`, `contexts/`, or `providers/`. Everything lives in the folders above. If a file doesn't fit one of these folders, it probably isn't needed.
 
 Non-negotiable rules:
 
