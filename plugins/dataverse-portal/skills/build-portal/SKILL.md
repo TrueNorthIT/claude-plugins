@@ -161,7 +161,7 @@ For each table the portal needs (derived from the prompt — "case portal" → `
 contact-admin tables get <routeName> --url "${API_URL}" --scope default --json
 ```
 
-If this returns a schema, save it as a draft in the target scope and publish:
+If this returns a schema, check any `lookupTable` values in the fields — these reference other tables by route name. If the target scope uses a different route name for that table (e.g. `"incident"` instead of `"case"`), change the `lookupTable` value to the Dataverse logical name (e.g. `"incident"`) which works in all scopes. Then save as a draft and publish:
 
 ```bash
 contact-admin tables save-draft <routeName> --schema '<the-schema-json>' --url "${API_URL}" --scope "${TARGET_SCOPE}"
