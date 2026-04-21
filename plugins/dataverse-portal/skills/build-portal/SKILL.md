@@ -153,13 +153,28 @@ First, check what's already published:
 contact-admin tables list --url "${API_URL}" --scope "${TARGET_SCOPE}" --json
 ```
 
-For each table the portal needs (derived from the prompt — "case portal" → `incident` + `annotation` for notes; "booking portal" → `msdyn_bookableresourcebooking`; etc.), if NOT already published, run:
+For each table the portal needs (derived from the prompt — "case portal" → `incident` + `annotation` for notes; "booking portal" → `msdyn_bookableresourcebooking`; etc.), if NOT already published:
+
+**First, try to copy from the default scope.** The default scope has hand-curated configs that handle edge cases (polymorphic lookups, filters, multi-hop joins) the scaffolder can't infer:
+
+```bash
+contact-admin tables get <routeName> --url "${API_URL}" --scope default --json
+```
+
+If this returns a schema, save it as a draft in the target scope and publish:
+
+```bash
+contact-admin tables save-draft <routeName> --schema '<the-schema-json>' --url "${API_URL}" --scope "${TARGET_SCOPE}"
+contact-admin tables publish --tables <routeName> --url "${API_URL}" --scope "${TARGET_SCOPE}"
+```
+
+**Only if the default scope doesn't have it**, fall back to scaffolding from discovery:
 
 ```bash
 contact-admin setup-table <entity> --url "${API_URL}" --scope "${TARGET_SCOPE}" --json
 ```
 
-This single command discovers the entity from Dataverse, scaffolds the schema, saves the draft, and publishes — all in one step.
+This discovers the entity from Dataverse, scaffolds the schema, saves the draft, and publishes — all in one step.
 
 **Join-ambiguity handling:** `setup-table` auto-publishes without pausing. If the scaffold response includes ambiguous join paths (multiple contact or account lookups), the CLI output will include `joinAnalysis` with hints. When `--json` is used, check the response for `joinAnalysis.contactJoinAmbiguous` or `joinAnalysis.accountJoinAmbiguous`. If either is `true`:
 
@@ -194,7 +209,7 @@ Each aliased route has:
 - **`parentTable`** — declares which table owns the child records (e.g. `{ table: "case", navigationProperty: "objectid_incident" }`)
 - **`contactJoinPath`** — a multi-hop join: child → parent → contact (e.g. annotation → incident → contact)
 
-When the portal needs a child table like case notes, run `setup-table` for the child entity the same way as any other table. The scaffold will detect the parent relationship and set up the filters and join paths automatically.
+The scaffolder **cannot** infer these from Dataverse metadata alone — polymorphic entities like `annotation` need hand-curated filters and join overrides. This is why the "copy from default scope first" step above is critical: the default scope's `casenotes` config already has all of this set up correctly.
 
 For the frontend, use the SDK's `filter` option to scope child records to their parent:
 ```ts
