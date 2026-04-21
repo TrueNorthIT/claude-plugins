@@ -471,11 +471,23 @@ npm run typecheck   # must pass clean
 npm run dev &       # background, report URL
 ```
 
+**Port mismatch?** Vite picks the next free port if 5173 is taken (5174, 5175, …). If `npm run dev` reports a port other than 5173, fix the Auth0 app immediately:
+
+```bash
+contact-admin auth0 update-spa "<clientId>" \
+  --callbacks "http://localhost:<actual-port>" \
+  --logout-urls "http://localhost:<actual-port>" \
+  --web-origins "http://localhost:<actual-port>" \
+  --url "${API_URL}" --scope "${TARGET_SCOPE}"
+```
+
+Tell the user what happened: "Vite started on port `<actual-port>` instead of 5173, so I've updated the Auth0 app's redirect URLs to match."
+
 ### 9. Offer to grant the first user access
 
 After confirming the scaffold, ask the user in one sentence whether to add a user now:
 
-> Auth0 SPA app `<project-name>` created (client_id: `<short-prefix>...`) with localhost:5173 pre-authorised. Reload `http://localhost:5173` when ready.
+> Auth0 SPA app `<project-name>` created (client_id: `<short-prefix>...`) with localhost:5173 pre-authorised. Reload `http://localhost:5173` when ready. If Vite picked a different port, I've already updated the Auth0 app to match.
 >
 > **Want me to grant access to a user right now?** Give me an email and I'll grant a sensible starter permission set — they'll be able to log in immediately. (Or skip this, and do it in the Auth0 dashboard later.)
 
