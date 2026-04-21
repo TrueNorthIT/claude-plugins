@@ -271,7 +271,7 @@ The generated code is the developer's first contact with the SDK and the API. Ev
 // Switch to client.team for account-wide access, or client.all for admin.
 const cases = await client.me.list<Case>("case", {
   select: ["incidentid", "ticketnumber", "title", "statuscode"],
-  orderBy: "modifiedon:desc",
+  orderBy: { field: "modifiedon", direction: "desc" },
   top: 50,
   // Add filters like this:
   // filter: { field: "statuscode", operator: "eq", value: 1 },
@@ -384,7 +384,7 @@ import type { Case } from "../types/case";
 export async function fetchCases(client: DataverseClient) {
   return client.me.list<Case>("case", {
     select: ["incidentid", "ticketnumber", "title", "statuscode"],
-    orderBy: "modifiedon:desc",
+    orderBy: { field: "modifiedon", direction: "desc" },
     top: 100,
   });
 }
