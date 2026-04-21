@@ -219,7 +219,7 @@ Cache these for TypeScript type generation and SDK `select` lists.
 
 ### 6. Scaffold the frontend
 
-From the user's cwd:
+From the user's cwd, scaffold into a new subdirectory. **Do not create temp folders, scaffold elsewhere then copy, or go up a directory.** Just run Vite directly:
 
 ```bash
 PROJECT_NAME=<inferred or from prompt>
@@ -229,6 +229,8 @@ npm install
 npm install @auth0/auth0-react @truenorth-it/dataverse-client
 npm install -D tailwindcss @tailwindcss/vite
 ```
+
+Stay in `$PROJECT_NAME` for all remaining steps. All files are created here.
 
 **Do NOT copy, clone, or fetch files from the example portal repo or any other repo.** Generate all code from scratch based on the table schema from step 5. The file layout should be:
 
