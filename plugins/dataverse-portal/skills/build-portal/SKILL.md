@@ -232,7 +232,7 @@ npm install -D tailwindcss @tailwindcss/vite
 
 Stay in `$PROJECT_NAME` for all remaining steps. All files are created here.
 
-**Do NOT copy, clone, or fetch files from the example portal repo or any other repo.** Generate all code from scratch based on the table schema from step 5. The file layout should be:
+Generate all code from scratch based on the table schema from step 5. If the user has an example project in the workspace, use it as a reference — but don't fetch repos from GitHub. The file layout should be:
 
 ```
 src/
