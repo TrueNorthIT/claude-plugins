@@ -24,7 +24,7 @@ All admin operations use this CLI instead of MCP. No MCP registration is needed.
 | API URL | Any `https://…` URL in the prompt whose host looks like an API endpoint | `API_URL` — the base for all HTTP + MCP endpoints |
 | Scope | "in scope X" / "scope=X" / "use scope X" | `TARGET_SCOPE` — URL scope + provisioning target |
 | Access tier | "me" / "team" / "all" | `TIER` |
-| Target table | "case portal" → `incident`; "booking" → `msdyn_bookableresourcebooking`; etc. | Drives setup-table calls |
+| Target table | "case portal" → `incident` + `casenotes`; "booking" → `msdyn_bookableresourcebooking`; etc. | Drives table publishing (use reference schemas for case portals, setup-table for others) |
 | Project name | Repeats the portal noun (`case-portal`, `bookings-pilot`) or explicit "project X" | Folder name + Vite project name |
 
 Defaults when absent:
@@ -40,12 +40,12 @@ For the URL, tier, and project name: state what you assumed in one sentence befo
 
 ## Version check
 
-**Expected plugin version: 0.9.0**
+**Expected plugin version: 0.10.0**
 
 Before doing any work, verify the installed plugin version. Read the plugin manifest at `../../.claude-plugin/plugin.json` (relative to this skill file) using the Read tool:
 
-- If the `version` field matches `0.9.0` — proceed.
-- If the `version` field is **older** — tell the user: "Your dataverse-portal plugin is v`<installed>` but this skill expects v0.9.0. Run `/plugin marketplace update truenorthit` and then `/reload-plugins` to get the latest version." Then stop.
+- If the `version` field matches `0.10.0` — proceed.
+- If the `version` field is **older** — tell the user: "Your dataverse-portal plugin is v`<installed>` but this skill expects v0.10.0. Run `/plugin marketplace update truenorthit` and then `/reload-plugins` to get the latest version." Then stop.
 - If the file cannot be read — warn the user but proceed.
 
 ## Workflow
@@ -153,35 +153,79 @@ First, check what's already published:
 contact-admin tables list --url "${API_URL}" --scope "${TARGET_SCOPE}" --json
 ```
 
-For each table the portal needs (derived from the prompt — "case portal" → `incident` + `annotation` for notes; "booking portal" → `msdyn_bookableresourcebooking`; etc.), if NOT already published:
+Skip tables that are already published. For each table the portal needs that is NOT yet published, follow ONE of the paths below in priority order:
 
-**First, try to copy from the default scope.** The default scope has hand-curated configs that handle edge cases (polymorphic lookups, filters, multi-hop joins) the scaffolder can't infer:
+#### Path A — Use a reference schema (MANDATORY for case portals)
+
+For **case portals**, ALWAYS use these exact schemas. Do NOT scaffold `incident` or `annotation` from discovery — the scaffolder gets the join paths, filters, and polymorphic lookups wrong.
+
+Publish `incident` first, then `casenotes`:
+
+```bash
+contact-admin tables save-draft incident --schema '<INCIDENT_SCHEMA>' --url "${API_URL}" --scope "${TARGET_SCOPE}"
+contact-admin tables publish --tables incident --url "${API_URL}" --scope "${TARGET_SCOPE}"
+contact-admin tables save-draft casenotes --schema '<CASENOTES_SCHEMA>' --url "${API_URL}" --scope "${TARGET_SCOPE}"
+contact-admin tables publish --tables casenotes --url "${API_URL}" --scope "${TARGET_SCOPE}"
+```
+
+**INCIDENT_SCHEMA** — the `incident` table (cases):
+```json
+{"routeName":"incident","description":"Cases and support tickets","dataverseTable":"incidents","dataverseLogicalName":"incident","requiredPermission":"incident","primaryKey":"incidentid","defaultSelect":["incidentid","title","ticketnumber","statecode","statuscode","prioritycode","casetypecode","createdon","modifiedon"],"contactJoinPath":[{"table":"contacts","from":"customerid_contact","key":"contactid"}],"alternateContactJoinPaths":[[{"table":"contacts","from":"primarycontactid","key":"contactid"}]],"teamJoinPath":[{"table":"accounts","from":"customerid_account","key":"accountid"}],"createDefaults":[{"field":"customerid_account","bindTo":"account","entitySet":"accounts"},{"field":"primarycontactid","bindTo":"contact","entitySet":"contacts"}],"lookupFields":["ticketnumber","title"],"lookupSearchContains":["ticketnumber","title"],"filters":["statecode eq 0"],"fields":{"incidentid":{"type":"string","description":"Unique case identifier","readOnly":true},"ticketnumber":{"type":"string","description":"Case number","readOnly":true},"title":{"type":"string","description":"Case title"},"description":{"type":"string","description":"Case description"},"statecode":{"type":"choice","description":"Case status"},"statuscode":{"type":"choice","description":"Status reason"},"prioritycode":{"type":"choice","description":"Priority"},"casetypecode":{"type":"choice","description":"Case type"},"caseorigincode":{"type":"choice","description":"Case origin"},"createdon":{"type":"datetime","description":"Date created","readOnly":true},"modifiedon":{"type":"datetime","description":"Date last modified","readOnly":true},"customerid":{"type":"lookup","description":"Customer (contact or account)","readOnly":true},"primarycontactid":{"type":"lookup","description":"Primary contact","lookupTable":"contact"},"ownerid":{"type":"lookup","description":"Record owner","readOnly":true}}}
+```
+
+Why this schema matters:
+- `contactJoinPath` uses `customerid_contact` — NOT `responsiblecontactid` or `ownerid` which the scaffolder picks and which returns no data for `/me` routes
+- `createDefaults` auto-binds the logged-in user's contact and account when creating cases
+- `filters: ["statecode eq 0"]` shows only active cases
+
+**CASENOTES_SCHEMA** — annotations filtered to cases (route name is `casenotes`, NOT `annotation`):
+```json
+{"routeName":"casenotes","description":"Notes and annotations linked to cases","dataverseTable":"annotations","dataverseLogicalName":"annotation","requiredPermission":"casenotes","primaryKey":"annotationid","aliases":["casenote"],"defaultSelect":["annotationid","subject","notetext","incidentid","isdocument","createdon","modifiedon"],"contactJoinPath":[{"table":"incidents","from":"objectid_incident","key":"incidentid"},{"table":"contacts","from":"customerid_contact","key":"contactid"}],"alternateContactJoinPaths":[[{"table":"incidents","from":"objectid_incident","key":"incidentid"},{"table":"contacts","from":"primarycontactid","key":"contactid"}]],"teamJoinPath":[{"table":"incidents","from":"objectid_incident","key":"incidentid"},{"table":"accounts","from":"customerid_account","key":"accountid"}],"filters":["objecttypecode eq 'incident'"],"parentTable":{"table":"incident","navigationProperty":"objectid_incident"},"lookupFields":["subject"],"lookupSearchContains":["subject"],"fields":{"annotationid":{"type":"string","description":"Unique note identifier","readOnly":true},"subject":{"type":"string","description":"Note subject / title"},"notetext":{"type":"string","description":"Note body text"},"isdocument":{"type":"boolean","description":"Whether the note has a file attachment","readOnly":true},"filename":{"type":"string","description":"Attachment file name","readOnly":true},"filesize":{"type":"number","description":"Attachment file size in bytes","readOnly":true},"mimetype":{"type":"string","description":"Attachment MIME type","readOnly":true},"incidentid":{"type":"lookup","description":"Parent case","lookupTable":"incident","valueField":"objectid","bindField":"objectid_incident"},"objecttypecode":{"type":"string","description":"Regarding entity type","readOnly":true},"ownerid":{"type":"lookup","description":"Record owner","readOnly":true},"createdon":{"type":"datetime","description":"Date created","readOnly":true},"modifiedon":{"type":"datetime","description":"Date last modified","readOnly":true}}}
+```
+
+Why this schema matters:
+- Route name is `casenotes` — do NOT publish a generic `annotation` route
+- `lookupTable` uses `"incident"` (the Dataverse logical name) so it resolves in any scope
+- `incidentid` has `valueField: "objectid"` and `bindField: "objectid_incident"` for the polymorphic lookup — without this, writes fail with "Invalid property 'incidentid'"
+- `contactJoinPath` is two hops: annotation → incident → contact (via `customerid_contact`)
+- `filter: ["objecttypecode eq 'incident'"]` restricts to case-linked notes only
+
+For the frontend, scope child records to their parent:
+```ts
+const notes = await client.me.list<CaseNote>("casenotes", {
+  filter: { field: "incidentid", operator: "eq", value: caseId },
+});
+```
+
+#### Path B — Copy from default scope
+
+For tables NOT covered by the reference schemas above, check if the default scope has a working config:
 
 ```bash
 contact-admin tables get <routeName> --url "${API_URL}" --scope default --json
 ```
 
-If this returns a schema, check any `lookupTable` values in the fields — these reference other tables by route name. If the target scope uses a different route name for that table (e.g. `"incident"` instead of `"case"`), change the `lookupTable` value to the Dataverse logical name (e.g. `"incident"`) which works in all scopes. Then save as a draft and publish:
+If found, check any `lookupTable` values in the fields — change them to the Dataverse logical name (e.g. `"incident"` not `"case"`) so they resolve in any scope. Then save and publish:
 
 ```bash
 contact-admin tables save-draft <routeName> --schema '<the-schema-json>' --url "${API_URL}" --scope "${TARGET_SCOPE}"
 contact-admin tables publish --tables <routeName> --url "${API_URL}" --scope "${TARGET_SCOPE}"
 ```
 
-**Only if the default scope doesn't have it**, fall back to scaffolding from discovery:
+#### Path C — Scaffold from discovery (last resort)
+
+Only use this for tables that have no reference schema AND don't exist in the default scope:
 
 ```bash
 contact-admin setup-table <entity> --url "${API_URL}" --scope "${TARGET_SCOPE}" --json
 ```
 
-This discovers the entity from Dataverse, scaffolds the schema, saves the draft, and publishes — all in one step.
-
-**Join-ambiguity handling:** `setup-table` auto-publishes without pausing. If the scaffold response includes ambiguous join paths (multiple contact or account lookups), the CLI output will include `joinAnalysis` with hints. When `--json` is used, check the response for `joinAnalysis.contactJoinAmbiguous` or `joinAnalysis.accountJoinAmbiguous`. If either is `true`:
+**Join-ambiguity handling:** If the response includes `joinAnalysis.contactJoinAmbiguous: true` or `joinAnalysis.accountJoinAmbiguous: true`:
 
 1. Run `contact-admin tables sample-data <entity> --top 3 --json` to inspect the chosen join's lookup values.
 2. **Pause and ask the user** in one sentence, e.g.:
    > "On `incident` I found two contact joins: `customerid → contact` and `ownerid → contact`. The scaffold picked `customerid`. Sample rows show `customerid` = [Alice, Bob, (null)]. Confirm, or say which to use."
-3. If the user picks a different join, use the granular commands instead:
+3. If the user picks a different join, use the granular commands:
    ```bash
    contact-admin tables scaffold <entity> --json   # get the schema
    # modify schema.contactJoinPath / schema.teamJoinPath
@@ -189,116 +233,7 @@ This discovers the entity from Dataverse, scaffolds the schema, saves the draft,
    contact-admin tables publish --tables <routeName>
    ```
 
-If neither flag is set (exactly one direct join each side), don't ask — just proceed.
-
 **Empty-table case:** if `sample-data` returns `count: 0`, don't block. Tell the user: "No rows in `<entity>` yet — join was chosen from metadata only; double-check once real data lands."
-
-Skip tables that are already published.
-
-#### Related tables and aliased routes
-
-A portal often needs child records — e.g. a case portal needs **case notes** (annotations linked to cases). In the API, these are handled as **aliased routes**: a filtered view of a shared Dataverse entity.
-
-The naming convention encodes the relationship: `<parent><child>`. For example:
-- **`casenotes`** — notes (`annotation` entity) filtered to those linked to cases (`objecttypecode eq 'incident'`)
-- **`caseemails`** — activities (`activitypointer` entity) filtered to emails on cases
-- **`contactactivities`** — activities filtered to those linked to contacts
-
-Each aliased route has:
-- **`filters`** — always-on OData filters that restrict the entity (e.g. `objecttypecode eq 'incident'` for case notes)
-- **`parentTable`** — declares which table owns the child records (e.g. `{ table: "case", navigationProperty: "objectid_incident" }`)
-- **`contactJoinPath`** — a multi-hop join: child → parent → contact (e.g. annotation → incident → contact)
-
-The scaffolder **cannot** infer these from Dataverse metadata alone — polymorphic entities like `annotation` need hand-curated filters and join overrides. This is why the "copy from default scope first" step above is critical: the default scope's `casenotes` config already has all of this set up correctly.
-
-For the frontend, use the SDK's `filter` option to scope child records to their parent:
-```ts
-const notes = await client.me.list<CaseNote>("casenotes", {
-  filter: { field: "incidentid", operator: "eq", value: caseId },
-});
-```
-
-#### Reference schemas for common case portal tables
-
-These are proven, working schemas. When publishing to a new scope, use these as the source of truth rather than scaffolding from discovery. Adjust `lookupTable` values to use the Dataverse logical name (e.g. `"incident"` not `"case"`) so they resolve in any scope regardless of route naming.
-
-**`incident` (route as `case` or `incident`)** — the core case table:
-```json
-{
-  "routeName": "incident",
-  "description": "Cases and support tickets",
-  "dataverseTable": "incidents",
-  "dataverseLogicalName": "incident",
-  "requiredPermission": "incident",
-  "primaryKey": "incidentid",
-  "defaultSelect": ["incidentid", "title", "ticketnumber", "statecode", "statuscode", "prioritycode", "casetypecode", "createdon", "modifiedon"],
-  "contactJoinPath": [{"table": "contacts", "from": "customerid_contact", "key": "contactid"}],
-  "alternateContactJoinPaths": [[{"table": "contacts", "from": "primarycontactid", "key": "contactid"}]],
-  "teamJoinPath": [{"table": "accounts", "from": "customerid_account", "key": "accountid"}],
-  "createDefaults": [
-    {"field": "customerid_account", "bindTo": "account", "entitySet": "accounts"},
-    {"field": "primarycontactid", "bindTo": "contact", "entitySet": "contacts"}
-  ],
-  "lookupFields": ["ticketnumber", "title"],
-  "lookupSearchContains": ["ticketnumber", "title"],
-  "filters": ["statecode eq 0"],
-  "fields": {
-    "incidentid": {"type": "string", "description": "Unique case identifier", "readOnly": true},
-    "ticketnumber": {"type": "string", "description": "Case number", "readOnly": true},
-    "title": {"type": "string", "description": "Case title"},
-    "description": {"type": "string", "description": "Case description"},
-    "statecode": {"type": "choice", "description": "Case status"},
-    "statuscode": {"type": "choice", "description": "Status reason"},
-    "prioritycode": {"type": "choice", "description": "Priority"},
-    "casetypecode": {"type": "choice", "description": "Case type"},
-    "caseorigincode": {"type": "choice", "description": "Case origin"},
-    "createdon": {"type": "datetime", "description": "Date created", "readOnly": true},
-    "modifiedon": {"type": "datetime", "description": "Date last modified", "readOnly": true},
-    "customerid": {"type": "lookup", "description": "Customer (contact or account)", "readOnly": true},
-    "primarycontactid": {"type": "lookup", "description": "Primary contact", "lookupTable": "contact"},
-    "ownerid": {"type": "lookup", "description": "Record owner", "readOnly": true}
-  }
-}
-```
-
-Key points: `contactJoinPath` uses `customerid_contact` (the case customer), NOT `responsiblecontactid` or `ownerid`. The `createDefaults` auto-bind the logged-in user's contact and account when creating cases. `filters: ["statecode eq 0"]` shows only active cases.
-
-**`casenotes`** — annotations filtered to cases (polymorphic entity):
-```json
-{
-  "routeName": "casenotes",
-  "description": "Notes and annotations linked to cases",
-  "dataverseTable": "annotations",
-  "dataverseLogicalName": "annotation",
-  "requiredPermission": "casenotes",
-  "primaryKey": "annotationid",
-  "aliases": ["casenote"],
-  "defaultSelect": ["annotationid", "subject", "notetext", "incidentid", "isdocument", "createdon", "modifiedon"],
-  "contactJoinPath": [{"table": "incidents", "from": "objectid_incident", "key": "incidentid"}, {"table": "contacts", "from": "customerid_contact", "key": "contactid"}],
-  "alternateContactJoinPaths": [[{"table": "incidents", "from": "objectid_incident", "key": "incidentid"}, {"table": "contacts", "from": "primarycontactid", "key": "contactid"}]],
-  "teamJoinPath": [{"table": "incidents", "from": "objectid_incident", "key": "incidentid"}, {"table": "accounts", "from": "customerid_account", "key": "accountid"}],
-  "filters": ["objecttypecode eq 'incident'"],
-  "parentTable": {"table": "incident", "navigationProperty": "objectid_incident"},
-  "lookupFields": ["subject"],
-  "lookupSearchContains": ["subject"],
-  "fields": {
-    "annotationid": {"type": "string", "description": "Unique note identifier", "readOnly": true},
-    "subject": {"type": "string", "description": "Note subject / title"},
-    "notetext": {"type": "string", "description": "Note body text"},
-    "isdocument": {"type": "boolean", "description": "Whether the note has a file attachment", "readOnly": true},
-    "filename": {"type": "string", "description": "Attachment file name", "readOnly": true},
-    "filesize": {"type": "number", "description": "Attachment file size in bytes", "readOnly": true},
-    "mimetype": {"type": "string", "description": "Attachment MIME type", "readOnly": true},
-    "incidentid": {"type": "lookup", "description": "Parent case", "lookupTable": "incident", "valueField": "objectid", "bindField": "objectid_incident"},
-    "objecttypecode": {"type": "string", "description": "Regarding entity type", "readOnly": true},
-    "ownerid": {"type": "lookup", "description": "Record owner", "readOnly": true},
-    "createdon": {"type": "datetime", "description": "Date created", "readOnly": true},
-    "modifiedon": {"type": "datetime", "description": "Date last modified", "readOnly": true}
-  }
-}
-```
-
-Key points: `lookupTable` uses `"incident"` (the logical name) not `"case"` — this resolves in any scope. The `incidentid` field has `valueField: "objectid"` and `bindField: "objectid_incident"` because annotation uses a polymorphic lookup (`_objectid_value`). The filter `objecttypecode eq 'incident'` restricts to case-linked notes only. The `contactJoinPath` is two hops: annotation → incident → contact. Do NOT also publish a generic `annotation` route alongside this — `casenotes` is the correct filtered alias.
 
 ### 5. Inspect published schema
 
