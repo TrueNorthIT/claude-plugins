@@ -448,6 +448,14 @@ export async function fetchCase(client: DataverseClient, id: string) {
   return client.me.get<Case>("case", id);
 }
 
+// src/services/casenoteApi.ts — fetch notes for a case
+export async function fetchCaseNotes(client: DataverseClient, caseId: string) {
+  return client.me.list<CaseNote>("casenotes", {
+    filter: { field: "incidentid", operator: "eq", value: caseId },
+    orderBy: { field: "createdon", direction: "desc" },
+  });
+}
+
 // src/services/caseApi.ts — write
 export async function createCase(client: DataverseClient, input: Partial<Case>) {
   return client.me.create("case", input);
