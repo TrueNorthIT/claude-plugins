@@ -318,6 +318,14 @@ Non-negotiable rules:
 
 The generated code is the developer's first contact with the SDK and the API. Every file should make them feel like they already know how to extend it. This means:
 
+**CRITICAL — SDK query syntax:** `orderBy` and `filter` use OBJECT syntax, NOT strings. The string format was removed in SDK v1.3. These are wrong and will fail typecheck:
+- `orderBy: "modifiedon:desc"` — WRONG
+- `filter: "statuscode eq 1"` — WRONG
+
+Correct:
+- `orderBy: { field: "modifiedon", direction: "desc" }`
+- `filter: { field: "statuscode", operator: "eq", value: 1 }`
+
 **Comment every SDK call** — not what it does (they can read code), but *why* this pattern and *what else they could do*:
 
 ```ts
