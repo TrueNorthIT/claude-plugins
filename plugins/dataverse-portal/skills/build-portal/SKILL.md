@@ -251,7 +251,6 @@ src/
     └── <Table>Detail.tsx     ← detail view
 ```
 
-Keep it flat — no extra folders like `pages/`, `layouts/`, `utils/`, `contexts/`, or `providers/`. Everything lives in the folders above. If a file doesn't fit one of these folders, it probably isn't needed.
 
 Non-negotiable rules:
 
