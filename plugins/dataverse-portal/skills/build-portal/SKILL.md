@@ -230,7 +230,6 @@ npm install @auth0/auth0-react @truenorth-it/dataverse-client
 npm install -D tailwindcss @tailwindcss/vite
 ```
 
-Stay in `$PROJECT_NAME` for all remaining steps. All files are created here.
 
 Generate code based on the table schema from step 5. The file layout should be:
 
