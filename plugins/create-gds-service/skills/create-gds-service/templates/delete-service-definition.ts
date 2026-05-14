@@ -13,6 +13,10 @@
  *   Dry run:        npx tsx scripts/d365/delete-<slug>.ts
  *   Hot delete:     npx tsx scripts/d365/delete-<slug>.ts --commit
  *   Cold delete:    npx tsx scripts/d365/delete-<slug>.ts --commit --confirm-old
+ *   Re-seed:        npx tsx scripts/d365/delete-<slug>.ts --commit --keep-files
+ *                   (deletes the DV row but leaves public/services/<slug>/
+ *                    intact, so a follow-up create-<slug>.ts --commit posts
+ *                    the new schema)
  *
  * After running with --commit, refresh the spec so the operationId
  * drops out:
@@ -56,6 +60,9 @@ function countLocalPages(): number {
 async function main(): Promise<void> {
   const commit = process.argv.includes('--commit');
   const confirmOld = process.argv.includes('--confirm-old');
+  // Re-seed workflow: delete the DV row but leave the markdown alone so a
+  // follow-up `create-<slug>.ts --commit` can post the new schema.
+  const keepFiles = process.argv.includes('--keep-files');
 
   loadDotenv();
   const config = readD365Config();
@@ -119,10 +126,12 @@ async function main(): Promise<void> {
     console.log('  Deleted.');
   }
 
-  if (folderExists) {
+  if (folderExists && !keepFiles) {
     console.log(`Removing local folder ${SERVICE_DIR}...`);
     rmSync(SERVICE_DIR, { recursive: true, force: true });
     console.log('  Removed.');
+  } else if (folderExists && keepFiles) {
+    console.log(`Keeping local folder ${SERVICE_DIR} (--keep-files).`);
   }
 
   console.log('');

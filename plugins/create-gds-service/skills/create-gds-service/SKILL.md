@@ -186,6 +186,20 @@ Always append a final `metadata` row exactly as in `templates/dataverse-row.json
 
 **Do not invent fields the markdown does not contain.** If a form has 4 questions, the schema has 4 rows + the trailing metadata. If a question has no obvious DV type, default to `String` and flag it inline.
 
+> **Composite components map to ONE row, never multiple.** `component: address-block field: workplace` → one row `{name: workplace, type: address, blockVersion: 1}`. The back-end's `address` type auto-expands at OpenAPI generation time into `{address-line-1, address-line-2, postcode, town-or-city, county}` sub-fields the component reads. Same for `map-picker` (also `type: address` — shares AddressBlock's field roles) and `file-upload` (`type: file`). **Never declare a composite's `field:` as a flat `String` — the page will render blank** because the merger (`src/merger/mergeModel.ts`) can't find the expected children. This bit us once on `tram-system-consultation`; don't repeat it.
+
+> **Variable-amount payments are a field flag, not a separate page.** When the user wants to ask "how much would you like to contribute?" with the actual charge happening at submit, use a numeric field with `payment: true`:
+>
+> ```yaml
+> fields:
+>   - sponsorship_amount:
+>       label: How much would you like to contribute?
+>       type: number
+>       payment: true
+> ```
+>
+> Stripe renders on check-answers automatically, summing every `payment: true` field across the journey. DV schema row: `{name: sponsorship_amount, type: Number}`. **Do not also add a `component: payment` page** — that's the fixed-amount pattern (delivery charge, application fee) and is separate. The two can coexist (variable sponsorship + fixed delivery fee), but only one is needed for the "ask for an amount" intent.
+
 The canonical worked example is `scripts/d365/ensure-request-new-bin.ts` lines 21–63 — keep it open in a second buffer while you derive.
 
 **Do not stringify `lcc_servicedataschema` in the JSON file** — the CLI script handles that at POST time.

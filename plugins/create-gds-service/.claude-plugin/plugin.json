@@ -1,5 +1,5 @@
 {
   "name": "create-gds-service",
   "description": "Scaffold or remove a GOV.UK Design System (GDS) service in service-builder-flow — folder, pages, GDS-compliant copy, Dataverse row CLI (with safety-gated delete), and OpenAPI verification.",
-  "version": "0.2.0"
+  "version": "0.3.0"
 }

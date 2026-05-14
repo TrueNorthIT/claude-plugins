@@ -27,13 +27,17 @@ One row in `lcc_servicedataschema` per `fields:` entry across all the page markd
 | `number`, `integer` | `Number` | — |
 | `component: textarea` | `String` | — (DV does not distinguish single- and multi-line) |
 | `component: address-block` | `address` | `blockVersion: 1` |
+| `component: map-picker` | `address` | `blockVersion: 1` (shares AddressBlock's field roles) |
 | `component: file-upload` | `file` | `blockVersion: 1` |
-| `component: payment` | (skip — Stripe is its own flow, no DV column) | — |
+| `component: payment` (fixed amount) | (skip — Stripe-only, no DV row) | — |
+| Any `type: number` field with `payment: true` (variable amount) | `Number` | — |
 | `component: repeater` | `list` | `listType: "key-value"`, `blockVersion: 1` |
 | `component: email-verify` | `String` | — (the verification is a UI flow, not a DV type) |
 | `component: time-select` | `String` | — (the value posted is an `HH:mm` string) |
 
 If you do not recognise the override, default to `String` and add a `<!-- TODO: confirm DV type -->` comment in the markdown for review.
+
+> **Composite components (`address-block`, `map-picker`, `file-upload`) always map to ONE row.** Never decompose the composite's `field:` into multiple rows or use a flat `String`. The DV `address` and `file` types auto-expand at OpenAPI generation time into the sub-fields the runtime component reads. Flat `String` for a composite = page renders blank.
 
 ## Worked example 1 — simple text/enum
 
