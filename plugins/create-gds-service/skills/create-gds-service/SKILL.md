@@ -327,7 +327,7 @@ The skill also handles removal. Auto-invoked when the user says "delete / remove
 - It does not write a new entry into the OpenAPI spec. The spec is generated from the Dataverse `lcc_servicedataschema`, which is why step 6 has to happen for the `operationId` to come online. The skill produces the CLI script that triggers that process; running it is the user's call.
 - It does not publish to live. Going live is a Preview → Live PR approved in the editor.
 - It does not translate to Welsh. Add `titleCy` and `descriptionCy` to `service.json` only if the user supplies translated copy. Do not machine-translate inline.
-- It does not invent Dataverse columns it does not know about. The full `lcc_servicedefinition` schema lives in the sibling `dataverse-contact-api` repo. If the user asks for a column not in the template, suggest they check that repo first.
+- **It does not create Dataverse assets.** No tables, no columns, no relationships, no choice sets, no environments — only **rows in the `lcc_servicedefinition` table**. Schema changes belong to the sibling `dataverse-contact-api` repo and are managed by Terraform there. If a service needs a column the template does not know about, stop and tell the user to add it in that repo first. Never auto-create a column, and never propose a script that touches anything beyond `lcc_servicedefinitions` rows.
 
 ## When you are done
 
