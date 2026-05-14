@@ -1,0 +1,26 @@
+{
+  "operationId": "Create-<slug>-ServiceRequest-V1",
+  "id": "<slug>",
+  "title": "<Service title in sentence case>",
+  "description": "<One sentence, 25 words or fewer, no full stop if it ends with a question>",
+  "pages": [
+    "01-<topic>.md",
+    "02-<topic>.md"
+  ],
+  "domainPrimary": "<one of: Council Tax | Bins & Recycling | Housing | Schools & Education | Adult Social Care | Children & Families | Antisocial Behaviour & Crime | Births, Deaths & Marriages | Parking, Roads & Travel | Benefits & Money | Business & Licensing | Planning & Building | Elections & Democracy | Leisure & Culture | Environmental Health | Your Council>",
+  "pattern": "<one of: Apply | Book | Tell | Pay | Register | Request | Manage | Check | Enquire | Find>",
+  "status": "Draft",
+  "audience": ["Resident"],
+  "estimatedTimeMinutes": 5,
+  "confirmation": {
+    "title": "<short confirmation heading, sentence case>",
+    "summary": "Your reference is {{reference}}. We've sent a copy to {{email}}.",
+    "slaText": "<You will hear back within N working days.>",
+    "whatHappensNext": "<one short paragraph, plain English>"
+  },
+  "accessibility": {
+    "wcagLevel": "AA",
+    "saveAndResume": true,
+    "autoSaveIntervalSeconds": 30
+  }
+}

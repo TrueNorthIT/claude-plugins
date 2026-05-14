@@ -1,0 +1,42 @@
+{
+  "_comment_columns": "Known columns on lcc_servicedefinition. Full schema lives in the dataverse-contact-api repo — fill in extra columns there if needed. Do NOT JSON.stringify lcc_servicedataschema here; the CLI script handles that.",
+  "_comment_required": "lcc_servicedisplayname, lcc_servicetype, lcc_servicedataschema are the bare minimum to create a working row. The rest match the values existing services use.",
+
+  "lcc_servicedisplayname": "<Service title — same string as service.json title>",
+  "lcc_servicedescription": "<Service description — same string as service.json description>",
+  "lcc_servicetype": "<slug — same as service.json id and folder name>",
+  "lcc_version": "1.0.0",
+  "lcc_requirecontactdetails": false,
+  "lcc_servicemanagementtype": 851800000,
+
+  "lcc_servicedataschema": [
+    {
+      "name": "<field_name>",
+      "description": "<What this field captures, plain English>",
+      "type": "String",
+      "required": true
+    },
+    {
+      "name": "<choice_field_name>",
+      "description": "<What this choice captures>",
+      "type": "Choice",
+      "required": true,
+      "values": ["<option-1>", "<option-2>", "<option-3>"]
+    },
+    {
+      "name": "address",
+      "description": "Where the issue is",
+      "type": "address",
+      "required": true,
+      "blockVersion": 1
+    },
+    {
+      "name": "metadata",
+      "description": "An array of key-value pairs to store custom metadata for the request",
+      "type": "list",
+      "required": false,
+      "listType": "key-value",
+      "blockVersion": 1
+    }
+  ]
+}

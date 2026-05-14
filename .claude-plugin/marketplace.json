@@ -9,6 +9,11 @@
       "name": "dataverse-portal",
       "source": "./plugins/dataverse-portal",
       "description": "Scaffold a React + TypeScript + Tailwind + Auth0 SPA against the Dataverse Contact API, following the patterns from dataverse-example-case-portal."
+    },
+    {
+      "name": "create-gds-service",
+      "source": "./plugins/create-gds-service",
+      "description": "Scaffold or remove a GOV.UK Design System (GDS) service in a service-builder-flow style repo — folder, pages, GDS-compliant copy, Dataverse row CLI (with safety-gated delete), and OpenAPI verification."
     }
   ]
 }
