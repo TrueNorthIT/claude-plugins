@@ -42,7 +42,19 @@ label: Delivery address
 field: address
 ```
 
-Use a single `field:` when the OpenAPI schema has a nested `address` object. Use `fields:` to map sub-fields explicitly when the schema is flat.
+`field:` MUST point at a schema object — the DV row must be `{name: <field>, type: address, blockVersion: 1}`. The merger looks for child sub-fields under the parent; a flat `String` row makes the page render blank. To capture **only a postcode** (e.g. "where do you work?"), still use `type: address` — AddressBlock degrades gracefully when only the postcode sub-field is populated.
+
+### `map-picker`
+
+Drag-and-drop pin on an embedded map.
+
+```yaml
+component: map-picker
+label: Where would you like a tram stop?
+field: preferred_stop
+```
+
+Composite — shares AddressBlock's `FIELD_ROLES`. Same schema rule: the DV row is `{name: <field>, type: address, blockVersion: 1}`. A flat `String` schema row makes the page render blank.
 
 ### `email-verify`
 
@@ -54,9 +66,9 @@ label: Your email address
 field: applicant.email
 ```
 
-### `payment`
+### `payment` (fixed amount)
 
-Stripe fee collection.
+Stripe fee collection for a set charge — application fee, delivery charge.
 
 ```yaml
 component: payment
@@ -64,6 +76,25 @@ amount: 75.00
 currency: GBP
 description: Application fee
 ```
+
+No DV row needed for the payment block itself.
+
+### Variable-amount payment (`payment: true` on a field)
+
+When the user enters an amount that the site then charges. No separate `component: payment` page — Stripe renders on check-answers and sums every `payment: true` field across the journey.
+
+```yaml
+fields:
+  - sponsorship_amount:
+      label: How much would you like to contribute?
+      hint: Enter an amount in pounds, for example 25.00
+      type: number
+      payment: true
+```
+
+Schema row: `{name: sponsorship_amount, type: Number}`. The field MUST be `type: number` — `collectPaymentItems()` in `src/utils/checkAnswers.ts` reads `parseFloat` and multiplies by 100 for pence.
+
+Fixed and variable can coexist (variable sponsorship + fixed delivery fee), but pick one for any single "ask for an amount" intent.
 
 ### `file-upload`
 
