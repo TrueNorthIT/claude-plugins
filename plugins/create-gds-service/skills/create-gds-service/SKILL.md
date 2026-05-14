@@ -134,9 +134,11 @@ Override `component:` only when this default is wrong — for example, forcing `
 
 If a question depends on a previous answer, use `show_when` on the field, section, or page. Use plain operators that match the Monaco authoring rules:
 
-- `show_when: reason is "Damaged"` (string equality)
-- `show_when: anonymous is not "Yes"`
+- `show_when: reason is Damaged` (string equality — **values are unquoted**)
+- `show_when: anonymous is not Yes`
 - `show_when: bin_type is present` (any value entered)
+
+> **Do not quote the value** — `show_when: reason is "Damaged"` parses with the literal quote characters in the value and never matches the unquoted radio value (`Damaged`). The parser strips no quotes. We hit this on the `tram-system-consultation` sponsor branch.
 
 Do not use raw `=`, `!=`, `&&`, `||` — the parser supports them but the authoring style for this repo is plain English.
 
