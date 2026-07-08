@@ -15,10 +15,20 @@ param(
 $root = git rev-parse --show-toplevel 2>$null
 if (-not $root) { Write-Error 'not inside a git repository'; exit 1 }
 Set-Location $root
-if (-not $Name) { $Name = (Split-Path $root -Leaf).ToLower() -replace '[^a-z0-9._-]', '-' }
+if (-not $Name) { $Name = (Split-Path $root -Leaf) }
+# Sanitize UNCONDITIONALLY — the name is interpolated into a remote shell command,
+# so a crafted value (e.g. ../../.ssh) would write outside the workspace jail.
+$Name = $Name.ToLower() -replace '[^a-z0-9._-]', '-'
+if ($Name -notmatch '^[a-z0-9][a-z0-9._-]*$' -or $Name -match '\.\.') {
+    Write-Error "invalid workspace name after sanitizing: '$Name'"; exit 1
+}
 
-$deny = '(^|/)\.env|\.pem$|\.key$|\.pfx$|\.p12$|(^|/)id_[a-z0-9]+$|(^|/)\.git/'
-$files = git ls-files -co --exclude-standard | Where-Object { $_ -notmatch $deny }
+$deny = '(?i)(^|/)\.env|\.pem$|\.key$|\.pfx$|\.p12$|\.p8$|\.jks$|\.keystore$|(^|/)id_[a-z0-9]+$|(^|/)\.git/|(^|/)\.npmrc$|(^|/)\.netrc$|(^|/)\.git-credentials$|(^|/)credentials$'
+# -co lists tracked + untracked-unignored; drop deny-listed and symlinks (a symlink
+# could point outside the jail once recreated on the box).
+$files = git ls-files -co --exclude-standard | Where-Object {
+    $_ -notmatch $deny -and -not ((Get-Item -LiteralPath $_ -Force -ErrorAction SilentlyContinue).LinkType)
+}
 if (-not $files) { Write-Error 'nothing to sync'; exit 1 }
 
 $listFile = New-TemporaryFile
