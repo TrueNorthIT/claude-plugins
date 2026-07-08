@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "bigmac": {
+      "type": "http",
+      "url": "http://bigmac:8434/mcp",
+      "timeout": 600000
+    }
+  }
+}
