@@ -16,7 +16,20 @@ Tailscale (see the bigmac repo wiki: How-to-Connect):
 Claude Code's own endpoint or auth (`ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, etc.) —
 the user's subscription login must stay intact.
 
+## Preflight — run before the first call
+
+1. `GET /api/tags` on the base URL (LAN fallback if the name doesn't resolve). If
+   unreachable, say so (user may be off LAN/Tailscale) and do the work on Claude
+   instead — don't stall or retry-loop.
+2. Pick the model from what the tags response ACTUALLY lists, in preference order:
+   any `qwen3.6:35b-a3b*` → any `qwen3.6:27b*` → `qwen2.5-coder:32b` → the most
+   recently modified model. Never assume a hardcoded tag still exists.
+3. Send `"think": false` only for models whose tags entry lists the `thinking`
+   capability; omit the field otherwise.
+
 ## Models
+
+Preference guide (verify against `/api/tags` — the box's inventory changes):
 
 | Model | Use for |
 |---|---|
@@ -60,6 +73,28 @@ anyway), collect the outputs, then synthesize the merged answer yourself on Clau
 **3. Exploration** — open-ended "map / explore / get familiar with X": locate the
 relevant files yourself with Glob/Grep (fast, exact), then run mode 2 over them and
 synthesize. Claude does the navigation and judgment; bigmac does the per-file reading.
+
+## Status check — when the user asks "is bigmac on the right version?" / "bigmac status"
+
+Report all of:
+
+1. **Plugin**: `claude plugin list` → bigmac's installed version; compare against main
+   (`https://raw.githubusercontent.com/TrueNorthIT/claude-plugins/main/plugins/bigmac/.claude-plugin/plugin.json`).
+   Remind: a running session uses whatever version was loaded at session start — the
+   auto-update hook fetches new versions, but a restart applies them.
+2. **Server**: `GET /api/version` (Ollama version) and `GET /api/tags` (installed
+   models); `GET /api/ps` shows what's loaded in memory right now.
+3. One line each — plugin current/stale, server reachable + version, models present.
+
+## Report usage at the end
+
+When a task used bigmac, end your final summary with one line of accounting, e.g.:
+
+> bigmac: 7 calls · qwen3.6:35b-a3b-nvfp4 · ~21k input / 0.8k output tokens handled locally
+
+Every `/api/generate` response includes the numbers — `prompt_eval_count` (input) and
+`eval_count` (output); total them across calls. This shows what was kept off the
+user's Claude budget. Prefer raw API calls over the wrapper when you need the counts.
 
 ## Division of labour (non-negotiable)
 
