@@ -14,6 +14,11 @@
       "name": "create-gds-service",
       "source": "./plugins/create-gds-service",
       "description": "Scaffold or remove a GOV.UK Design System (GDS) service in a service-builder-flow style repo — folder, pages, GDS-compliant copy, Dataverse row CLI (with safety-gated delete), and OpenAPI verification."
+    },
+    {
+      "name": "bigmac",
+      "source": "./plugins/bigmac",
+      "description": "Offload grunt work (summaries, first-pass code exploration, bulk classification, drafts) to bigmac, the office Ollama server, instead of burning frontier tokens. Never touches Claude Code's own endpoint or login."
     }
   ]
 }
