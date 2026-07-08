@@ -1,5 +1,5 @@
 {
   "name": "bigmac",
   "description": "Offload grunt work to bigmac, the office LLM server (Ollama on a Mac Studio, reachable over LAN/Tailscale) — file/batch summaries, first-pass code exploration, bulk classification, rough drafts — instead of burning frontier tokens. Never touches Claude Code's own endpoint or login. Invoke with /bigmac or just mention bigmac.",
-  "version": "0.4.0"
+  "version": "0.5.0"
 }

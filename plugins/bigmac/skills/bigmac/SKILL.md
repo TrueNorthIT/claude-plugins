@@ -40,31 +40,38 @@ Preference guide (verify against `/api/tags` — the box's inventory changes):
 qwen3.6 models think by default and will burn seconds (or return empty on small token
 budgets) unless `"think": false` is set. Check `/api/tags` if a model is missing.
 
-## Calling bigmac
+## Calling bigmac — file-first, never interpolate file content
 
-Windows (PowerShell):
+**NEVER interpolate file content into a double-quoted command string** (e.g.
+`"...$(Get-Content -Raw x)..."`) — backticks/`$` in code files get evaluated by the
+shell and corrupt or break the call. Pass file content via `-File` or a variable.
+
+Preferred — the `bigmac-ask` wrapper v2 (see the bigmac wiki, Set-up-Claude-Code):
 
 ```powershell
+bigmac-ask "Summarise each of these files" -File src\a.ps1, src\b.ps1
+bigmac-ask "<prompt>" [model] [-System "..."] [-Think] [-Stats]
+```
+
+Raw HTTP without the wrapper — build the body in a variable (PowerShell) or send it
+from a temp file (bash); content never touches the command line:
+
+```powershell
+$prompt = "Summarise this file:`n" + (Get-Content -Raw $path)   # variable, not inline
 $body = @{ model = 'qwen3.6:35b-a3b-nvfp4'; prompt = $prompt; think = $false; stream = $false } | ConvertTo-Json -Depth 4
 (Invoke-RestMethod -Uri 'http://bigmac:11434/api/generate' -Method Post `
     -Body $body -ContentType 'application/json' -TimeoutSec 300).response
 ```
 
-macOS / Linux (bash):
-
 ```bash
-curl -s http://bigmac:11434/api/generate \
-  -d "$(jq -n --arg p "$PROMPT" '{model:"qwen3.6:35b-a3b-nvfp4", prompt:$p, think:false, stream:false}')" \
-  | jq -r .response
+jq -n --rawfile c "$path" '{model:"qwen3.6:35b-a3b-nvfp4", prompt:("Summarise this file:\n"+$c), think:false, stream:false}' > /tmp/body.json
+curl -s http://bigmac:11434/api/generate -d @/tmp/body.json | jq -r .response
 ```
-
-If the user has the `bigmac-ask` wrapper installed (see the bigmac wiki,
-Set-up-Claude-Code), prefer it: `bigmac-ask "<prompt>" [model]`.
 
 ## Pick a mode
 
 **1. One-shot** — single summary / classification / draft / transform: one call as
-above, embedding file content in the prompt (`Get-Content -Raw` / `cat`).
+above, attaching file content with `-File` (or the variable/`--rawfile` patterns).
 
 **2. Batch sweep** — many files needing the same treatment: loop mode 1 over the files
 sequentially (one call per file — Ollama serializes concurrent requests on one GPU
