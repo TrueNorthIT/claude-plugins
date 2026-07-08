@@ -40,6 +40,29 @@ Preference guide (verify against `/api/tags` — the box's inventory changes):
 qwen3.6 models think by default and will burn seconds (or return empty on small token
 budgets) unless `"think": false` is set. Check `/api/tags` if a model is missing.
 
+## Prefer the MCP tools when connected
+
+This plugin bundles the shared `bigmac` MCP server (http://bigmac:8434/mcp). When its
+tools are available (named like `mcp__plugin_bigmac_bigmac__ask` or `mcp__bigmac__ask`),
+prefer them over raw HTTP: `ask`, `summarize`, `classify`, `models`, `usage` — plus
+delegation: `explore_start` / `explore_status` / `explore_result` / `workspaces`.
+If the server is unreachable (off LAN/Tailscale), fall back to the raw HTTP recipes
+below — don't stall.
+
+**Delegated exploration** (open-ended "map / explore this repo" on a synced copy,
+zero frontier tokens while it runs):
+
+1. Sync first — ask the user to run `scripts/bigmac-sync.ps1` (or `.sh`) from the
+   repo, or run it yourself if permitted; syncing ships source to the shared box, so
+   it is user-triggered by design.
+2. `explore_start(workspace, question)` → poll `explore_status` every ~30s (jobs are
+   minutes-long; one runs at a time) → `explore_result`.
+3. **Verify before relaying**: spot-check 2–3 of the result's file:line citations
+   against the real repo with Read/Grep. Delegation output is a draft map, never a
+   source of truth.
+
+End any task that used these tools with the usage line (the `usage` tool has totals).
+
 ## Calling bigmac — file-first, never interpolate file content
 
 **NEVER interpolate file content into a double-quoted command string** (e.g.
