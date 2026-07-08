@@ -55,8 +55,10 @@ zero frontier tokens while it runs):
 1. Sync first — ask the user to run `scripts/bigmac-sync.ps1` (or `.sh`) from the
    repo, or run it yourself if permitted; syncing ships source to the shared box, so
    it is user-triggered by design.
-2. `explore_start(workspace, question)` → poll `explore_status` every ~30s (jobs are
-   minutes-long; one runs at a time) → `explore_result`.
+2. `explore_start(workspace, question, think?)` → poll `explore_status` every ~30s
+   (jobs are minutes-long; one runs at a time) → `explore_result`. Pass `think=true`
+   only for hard architectural questions — it enables the local model's reasoning
+   (much slower, ~6x; richer synthesis). Default off for straightforward lookups.
 3. **Verify before relaying**: spot-check 2–3 of the result's file:line citations
    against the real repo with Read/Grep. Delegation output is a draft map, never a
    source of truth.
