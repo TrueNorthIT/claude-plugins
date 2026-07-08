@@ -10,22 +10,29 @@ Tailscale (see the bigmac repo wiki: How-to-Connect):
 
 - Base URL: `http://bigmac:11434` (OpenAI-compatible at `/v1`, any dummy key).
   LAN fallback: `http://192.168.1.68:11434`. Override via the `BIGMAC_URL` env var.
-- Models: `qwen2.5-coder:32b` (fast workhorse — default), `qwen3.6:27b` (dense
-  reasoning), `qwen3.6:35b-a3b` (MoE reasoning). The qwen3.6 models "think" first and
-  return empty if starved of tokens — give them `num_predict` headroom (e.g.
-  `"options": {"num_predict": 4000}`) or prefer the coder model for quick tasks.
-- Health check if calls fail: GET `http://bigmac:11434/api/tags`.
+- Health check if calls fail: GET `http://bigmac:11434/api/tags` (also lists current models).
 
-**IMPORTANT — auth boundary:** bigmac is reached as a plain HTTP call / subprocess
-only. NEVER touch Claude Code's own endpoint or auth (`ANTHROPIC_BASE_URL`,
-`ANTHROPIC_API_KEY`, etc.) — the user's subscription login must stay intact.
+**IMPORTANT — auth boundary:** bigmac is reached as a plain HTTP call only. NEVER touch
+Claude Code's own endpoint or auth (`ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, etc.) —
+the user's subscription login must stay intact.
+
+## Models
+
+| Model | Use for |
+|---|---|
+| `qwen3.6:35b-a3b-nvfp4` | **Default.** MoE (3B active) — fast. Always send `"think": false` for grunt work. |
+| `qwen3.6:27b-mxfp8` | Dense — harder reasoning. Let it think (`"think": true` + `"options": {"num_predict": 4000}`). |
+| `qwen2.5-coder:32b` | Older-gen coder, no thinking support — omit the `think` field entirely. |
+
+qwen3.6 models think by default and will burn seconds (or return empty on small token
+budgets) unless `"think": false` is set. Check `/api/tags` if a model is missing.
 
 ## Calling bigmac
 
 Windows (PowerShell):
 
 ```powershell
-$body = @{ model = 'qwen2.5-coder:32b'; prompt = $prompt; stream = $false } | ConvertTo-Json -Depth 4
+$body = @{ model = 'qwen3.6:35b-a3b-nvfp4'; prompt = $prompt; think = $false; stream = $false } | ConvertTo-Json -Depth 4
 (Invoke-RestMethod -Uri 'http://bigmac:11434/api/generate' -Method Post `
     -Body $body -ContentType 'application/json' -TimeoutSec 300).response
 ```
@@ -34,7 +41,7 @@ macOS / Linux (bash):
 
 ```bash
 curl -s http://bigmac:11434/api/generate \
-  -d "$(jq -n --arg m qwen2.5-coder:32b --arg p "$PROMPT" '{model:$m, prompt:$p, stream:false}')" \
+  -d "$(jq -n --arg p "$PROMPT" '{model:"qwen3.6:35b-a3b-nvfp4", prompt:$p, think:false, stream:false}')" \
   | jq -r .response
 ```
 
@@ -50,18 +57,9 @@ above, embedding file content in the prompt (`Get-Content -Raw` / `cat`).
 sequentially (one call per file — Ollama serializes concurrent requests on one GPU
 anyway), collect the outputs, then synthesize the merged answer yourself on Claude.
 
-**3. Agentic exploration** — open-ended "map / explore / get familiar with X": check
-for Qwen Code (`Get-Command qwen` / `which qwen`). If installed and configured for
-bigmac, run it headless and read-only from the target repo's directory:
-
-```
-qwen -p "<exploration task>" --approval-mode plan --output-format text --max-tool-calls 60 --max-wall-time 600
-```
-
-The qwen model on bigmac then does its own read/grep loop and returns a synthesis.
-If Qwen Code is NOT installed, fall back to: locate the relevant files yourself with
-Glob/Grep, then run mode 2 over them — and mention to the user that installing Qwen
-Code would make this class of task better.
+**3. Exploration** — open-ended "map / explore / get familiar with X": locate the
+relevant files yourself with Glob/Grep (fast, exact), then run mode 2 over them and
+synthesize. Claude does the navigation and judgment; bigmac does the per-file reading.
 
 ## Division of labour (non-negotiable)
 
