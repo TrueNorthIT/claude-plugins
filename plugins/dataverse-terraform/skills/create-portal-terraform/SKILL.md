@@ -55,7 +55,17 @@ directory**, not the user's project — invoke them with the skill's absolute pa
 
 ## Prerequisites
 
-- **Terraform** ≥ 1.0 on PATH.
+They differ by mode. **Explaining a config needs nothing at all** — no
+credentials, no network, not even Terraform installed:
+
+| Doing this | Needs |
+|---|---|
+| Explaining, reviewing or documenting a config (mode C) | Nothing. It is a read of the `.tf` files in front of you |
+| Scaffolding a new scope (`--new`, step B1) | Nothing |
+| Writing or editing resources by hand | Nothing to write; credentials only to apply |
+| Exporting a live scope (step A1) | The connection key and API URL |
+| `plan`, `apply`, `import`, `destroy` | Terraform ≥ 1.0 on PATH, plus both of the below |
+
 - **The admin connection key.** Byte-identical to `ADMIN_CONNECTION_KEY` on the
   API deployment, exported as `DATAVERSE_CONTACT_CONNECTION_KEY`. One key
   administers every scope on that deployment, so treat it as a deployment-wide
@@ -63,9 +73,14 @@ directory**, not the user's project — invoke them with the skill's absolute pa
 - **API base URL** as `DATAVERSE_CONTACT_API_URL`, e.g.
   `https://api.dataverse-contact.tnapps.co.uk`.
 
-If the key is missing, stop and ask for it. Do not invent one, and do not fall
-back to the `contact-admin` CLI's Entra login — that is a different credential
-and the provider cannot use it.
+When a step that genuinely needs the key can't find one, stop and ask for it.
+Do not invent one, and do not fall back to the `contact-admin` CLI's Entra
+login — that is a different credential and the provider cannot use it.
+
+**Never ask for a key to answer a question the files already answer.** "What
+does this scope expose", "who can see quotes", "does this PR widen access" are
+all answerable from the config alone. Asking for production credentials to read
+a repo is both unnecessary and a bad habit to model.
 
 ---
 
@@ -191,8 +206,14 @@ Read the `.tf` files themselves — not the API, and not this skill's examples.
 The config is what a reviewer is being asked to approve, and it may differ from
 what is live.
 
-If the user is comparing config against reality, run `bash run.sh plan`: the
-diff *is* the difference, and it beats reading both by eye.
+This needs no credentials and no network. A freshly cloned repo, a PR diff, or
+a config for a deployment you have no access to can all be explained in full,
+because everything that decides who sees what is in the HCL.
+
+The one exception is *"does this match what's actually deployed?"*, which is a
+different question. Answering it needs the key: run `bash run.sh plan` and read
+the diff, rather than comparing two things by eye. Say which question you are
+answering — a config review is not a drift check.
 
 ### C2. Work through `references/explaining.md`
 
