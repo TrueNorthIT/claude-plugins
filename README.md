@@ -9,7 +9,7 @@ Each plugin is independent — install only the ones you want.
 | Plugin | Description | Install |
 |---|---|---|
 | [`dataverse-portal`](./plugins/dataverse-portal) | Scaffold a React + TypeScript + Tailwind + Auth0 SPA against the [Dataverse Contact API](https://api.dataverse-contact.tnapps.co.uk). | `claude plugin install dataverse-portal@truenorthit` |
-| [`dataverse-terraform`](./plugins/dataverse-terraform) | Define a Contact API portal backend as Terraform — export an existing scope into HCL and adopt it into state, scaffold and provision a new one, or read a config back in plain English. | `claude plugin install dataverse-terraform@truenorthit` |
+| [`dataverse-terraform`](./plugins/dataverse-terraform/README.md) | Define a Contact API portal backend as Terraform — export an existing scope into HCL and adopt it into state, scaffold and provision a new one, or read a config back in plain English. | `claude plugin install dataverse-terraform@truenorthit` |
 | [`create-gds-service`](./plugins/create-gds-service) | Scaffold or remove a GOV.UK Design System service in a service-builder-flow repo. | `claude plugin install create-gds-service@truenorthit` |
 | [`bigmac`](./plugins/bigmac) | Offload grunt work (summaries, first-pass exploration, bulk classification) to the office Ollama server. | `claude plugin install bigmac@truenorthit` |
 
@@ -31,8 +31,12 @@ Or from inside a Claude Code session:
 ```
 
 Installing the marketplace does **not** install any plugins — you pick them one
-at a time, and each carries its own version and update check. See a plugin's own
-README (linked above) for what it needs and how to drive it.
+at a time, and each carries its own version and update check.
+
+For what a plugin needs and how to drive it:
+[`dataverse-terraform`](./plugins/dataverse-terraform/README.md) has a full
+usage guide. The others are documented by their skill file — e.g.
+[`build-portal/SKILL.md`](./plugins/dataverse-portal/skills/build-portal/SKILL.md).
 
 ## Update
 
