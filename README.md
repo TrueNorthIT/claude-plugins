@@ -4,26 +4,39 @@ Claude Code plugins for building against TrueNorth IT services.
 
 ## Available plugins
 
-| Plugin | Description |
-|---|---|
-| [`dataverse-portal`](./plugins/dataverse-portal) | Scaffold a React + TypeScript + Tailwind + Auth0 SPA against the [Dataverse Contact API](https://api.dataverse-contact.tnapps.co.uk). |
+Each plugin is independent — install only the ones you want.
+
+| Plugin | Description | Install |
+|---|---|---|
+| [`dataverse-portal`](./plugins/dataverse-portal) | Scaffold a React + TypeScript + Tailwind + Auth0 SPA against the [Dataverse Contact API](https://api.dataverse-contact.tnapps.co.uk). | `claude plugin install dataverse-portal@truenorthit` |
+| [`dataverse-terraform`](./plugins/dataverse-terraform/README.md) | Define a Contact API portal backend as Terraform — export an existing scope into HCL and adopt it into state, scaffold and provision a new one, or read a config back in plain English. | `claude plugin install dataverse-terraform@truenorthit` |
+| [`create-gds-service`](./plugins/create-gds-service) | Scaffold or remove a GOV.UK Design System service in a service-builder-flow repo. | `claude plugin install create-gds-service@truenorthit` |
+| [`bigmac`](./plugins/bigmac) | Offload grunt work (summaries, first-pass exploration, bulk classification) to the office Ollama server. | `claude plugin install bigmac@truenorthit` |
 
 ## Install
 
+Add the marketplace once, then install whichever plugins you need:
+
 ```bash
-# Add this marketplace once
 claude plugin marketplace add TrueNorthIT/claude-plugins
 
-# Install a plugin
-claude plugin install dataverse-portal@truenorthit
+claude plugin install dataverse-terraform@truenorthit
 ```
 
 Or from inside a Claude Code session:
 
 ```
 /plugin marketplace add TrueNorthIT/claude-plugins
-/plugin install dataverse-portal@truenorthit
+/plugin install dataverse-terraform@truenorthit
 ```
+
+Installing the marketplace does **not** install any plugins — you pick them one
+at a time, and each carries its own version and update check.
+
+For what a plugin needs and how to drive it:
+[`dataverse-terraform`](./plugins/dataverse-terraform/README.md) has a full
+usage guide. The others are documented by their skill file — e.g.
+[`build-portal/SKILL.md`](./plugins/dataverse-portal/skills/build-portal/SKILL.md).
 
 ## Update
 
@@ -48,16 +61,28 @@ claude plugin validate .
 
 ## Layout
 
+One repo, one marketplace, many plugins — the layout the plugin system is built
+for. Each plugin is versioned, installed and updated on its own; the repo is
+just where they live.
+
 ```
 claude-plugins/
 ├── .claude-plugin/
 │   └── marketplace.json              ← Marketplace manifest (name, owner, plugins[])
 ├── plugins/
-│   └── dataverse-portal/
-│       ├── .claude-plugin/
-│       │   └── plugin.json           ← Plugin manifest (name, description, version)
-│       └── skills/
-│           └── build-portal/
-│               └── SKILL.md          ← Auto-invoked skill
+│   ├── dataverse-portal/
+│   │   ├── .claude-plugin/
+│   │   │   └── plugin.json           ← Plugin manifest (name, description, version)
+│   │   ├── hooks/                    ← Session-start update check
+│   │   └── skills/
+│   │       └── build-portal/
+│   │           └── SKILL.md          ← Auto-invoked skill
+│   ├── dataverse-terraform/
+│   ├── create-gds-service/
+│   └── bigmac/
 └── README.md
 ```
+
+When changing a plugin, bump the `version` in its `plugin.json` — each plugin's
+session-start hook compares the installed version against the one on `main` and
+prompts the user to update.
