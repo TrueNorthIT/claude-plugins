@@ -4,6 +4,7 @@
     "name": "TrueNorth IT",
     "email": "hello@truenorthit.co.uk"
   },
+  "description": "Claude Code plugins for building against TrueNorth IT services — the Dataverse Contact API, GOV.UK Design System services, and local model offload.",
   "plugins": [
     {
       "name": "dataverse-portal",
@@ -14,6 +15,11 @@
       "name": "create-gds-service",
       "source": "./plugins/create-gds-service",
       "description": "Scaffold or remove a GOV.UK Design System (GDS) service in a service-builder-flow style repo — folder, pages, GDS-compliant copy, Dataverse row CLI (with safety-gated delete), and OpenAPI verification."
+    },
+    {
+      "name": "dataverse-terraform",
+      "source": "./plugins/dataverse-terraform",
+      "description": "Define, and explain, a Dataverse Contact API portal backend as Terraform — export an existing scope into HCL and adopt it into state, scaffold and provision a new one, or read a config back in plain English. Uses the public TrueNorthIT/dataversecontact provider."
     },
     {
       "name": "bigmac",

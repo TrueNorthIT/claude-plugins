@@ -7,6 +7,9 @@ Claude Code plugins for building against TrueNorth IT services.
 | Plugin | Description |
 |---|---|
 | [`dataverse-portal`](./plugins/dataverse-portal) | Scaffold a React + TypeScript + Tailwind + Auth0 SPA against the [Dataverse Contact API](https://api.dataverse-contact.tnapps.co.uk). |
+| [`dataverse-terraform`](./plugins/dataverse-terraform) | Define a Contact API portal backend as Terraform — export an existing scope into HCL and adopt it into state, or scaffold and provision a new one. |
+| [`create-gds-service`](./plugins/create-gds-service) | Scaffold or remove a GOV.UK Design System service in a service-builder-flow repo. |
+| [`bigmac`](./plugins/bigmac) | Offload grunt work (summaries, first-pass exploration, bulk classification) to the office Ollama server. |
 
 ## Install
 
