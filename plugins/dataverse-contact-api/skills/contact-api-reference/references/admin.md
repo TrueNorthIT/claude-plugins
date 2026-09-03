@@ -36,9 +36,28 @@ curl -s -H "Authorization: Bearer $TOKEN" "$API_URL/api/v2/_admin/$SCOPE/table-m
 That is the way in on a deployment where no pre-shared key is configured, or
 where you would rather not handle one.
 
-The connection key and the Entra route are **different credentials with
-different tooling**: the Terraform provider uses the connection key only; the
-`contact-admin` CLI uses workforce Entra. Neither can use the other's.
+**Both tools take either credential**, because all three arrive as one
+`Authorization: Bearer …` header and the API resolves them in the order above.
+Neither tool inspects what it is holding.
+
+| Tool | Normally | But also accepts |
+|---|---|---|
+| Terraform provider | `connection_key` | any bearer token — it sends `Bearer <connection_key>` verbatim |
+| `contact-admin` | workforce Entra (device code / SP) | `--token <jwt>` or `CONTACT_ADMIN_TOKEN` |
+
+That interchangeability is the way out of the two prerequisite dead ends:
+
+```bash
+# No ADMIN_CONNECTION_KEY on the deployment? Give Terraform an Entra token.
+export TF_VAR_connection_key=$(az account get-access-token \
+  --resource "$DATAVERSE_URL" --query accessToken -o tsv)
+
+# Have the key but no Azure sign-in? Give the CLI the key.
+export CONTACT_ADMIN_TOKEN="$DATAVERSE_CONTACT_CONNECTION_KEY"
+```
+
+An Entra token lasts about an hour — ample for an apply, useless for CI, which
+is the whole reason the pre-shared key exists.
 
 ## Reading the effective permissions
 

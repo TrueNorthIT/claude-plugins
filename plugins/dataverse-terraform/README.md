@@ -51,8 +51,22 @@ Only some of it, only some of the time:
 
 The connection key is the API deployment's `ADMIN_CONNECTION_KEY`. One key
 administers every scope on that deployment, so treat it as a deployment-wide
-secret — it belongs in `.env` (gitignored), never in a `.tf` file. It is a
-different credential from the one `contact-admin` uses (workforce Entra).
+secret — it belongs in `.env` (gitignored), never in a `.tf` file.
+
+**If the deployment has no key**, you are not stuck. The value defaults to `""`
+at deploy time, which omits the setting entirely and disables that route — but
+the admin plane also accepts a workforce Entra token, and the provider sends
+`connection_key` verbatim as a bearer token without inspecting it. So this
+works:
+
+```bash
+export TF_VAR_connection_key=$(az account get-access-token \
+  --resource "$DATAVERSE_URL" --query accessToken -o tsv)
+```
+
+Your account needs **System Customizer** or **System Administrator** in that
+Dataverse environment. The token lasts about an hour — ample for an apply,
+useless for CI, which is exactly the gap the pre-shared key fills.
 
 ## Adopting a scope that already exists
 
