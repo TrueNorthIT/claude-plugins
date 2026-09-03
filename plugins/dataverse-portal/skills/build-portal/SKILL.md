@@ -42,12 +42,12 @@ For the URL, tier, and project name: state what you assumed in one sentence befo
 
 ## Version check
 
-**Expected plugin version: 0.11.0**
+**Expected plugin version: 0.12.0**
 
 Before doing any work, verify the installed plugin version. Read the plugin manifest at `../../.claude-plugin/plugin.json` (relative to this skill file) using the Read tool:
 
-- If the `version` field matches `0.11.0` — proceed.
-- If the `version` field is **older** — tell the user: "Your dataverse-portal plugin is v`<installed>` but this skill expects v0.11.0. Run `/plugin marketplace update truenorthit` and then `/reload-plugins` to get the latest version." Then stop.
+- If the `version` field matches `0.12.0` — proceed.
+- If the `version` field is **older** — tell the user: "Your dataverse-portal plugin is v`<installed>` but this skill expects v0.12.0. Run `/plugin marketplace update truenorthit` and then `/reload-plugins` to get the latest version." Then stop.
 - If the file cannot be read — warn the user but proceed.
 
 ## Workflow
@@ -289,6 +289,26 @@ Cache these for TypeScript type generation and SDK `select` lists.
 
 ### 7. Scaffold the frontend
 
+#### The house stack
+
+Scaffold this unless the user asks for something else. It is what the existing
+portals run, so a developer moving between them meets the same shapes:
+
+| | | |
+|---|---|---|
+| **React** | 19 | |
+| **Vite** | latest | build and dev server; no dev proxy — the API is CORS-enabled |
+| **TypeScript** | strict | |
+| **TanStack Query** | v5 | **all server state.** No `useEffect` fetching, no SWR, no Redux |
+| **MSAL** | `msal-browser` ^5.18 + `msal-react` ^5.5 | Entra External ID sign-in |
+| **`@truenorth-it/dataverse-client`** | latest | every API call |
+| **React Router** | 7 | |
+| **Tailwind** | v4, via `@tailwindcss/vite` | |
+| **Node** | >= 20 | |
+
+Forms are plain `useState` controlled components. Do not reach for
+`react-hook-form` or `zod` — the existing portals declare them and use neither.
+
 From the user's cwd, scaffold into a new subdirectory. **Do not create temp folders, scaffold elsewhere then copy, or go up a directory.** Just run Vite directly:
 
 ```bash
@@ -296,7 +316,8 @@ PROJECT_NAME=<inferred or from prompt>
 npm create vite@latest "$PROJECT_NAME" -- --template react-ts
 cd "$PROJECT_NAME"
 npm install
-npm install @azure/msal-browser@^5.18 @azure/msal-react@^5.5 react-router-dom @truenorth-it/dataverse-client
+npm install @azure/msal-browser@^5.18 @azure/msal-react@^5.5 react-router-dom \
+  @tanstack/react-query @truenorth-it/dataverse-client
 npm install -D tailwindcss @tailwindcss/vite
 ```
 
@@ -407,7 +428,35 @@ Everything before React mounts sits outside any error boundary, so the `catch` m
 MsalProvider → QueryClientProvider → AuthProvider → BrowserRouter → routes
 ```
 
-`useAuth` reads MSAL, so `AuthProvider` must sit inside `MsalProvider`; anything that fetches must sit inside `AuthProvider`. If the app doesn't use TanStack Query, drop that one layer and keep the rest in the same order.
+`useAuth` reads MSAL, so `AuthProvider` must sit inside `MsalProvider`; anything that fetches must sit inside `AuthProvider`.
+
+**The `QueryClient` needs two non-default settings:**
+
+```ts
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 60_000,
+      refetchOnWindowFocus: false,
+      // Query's retryer only continues while the tab is focused. A scheduled
+      // retry in a background tab PAUSES, leaving status at 'pending' — so the
+      // user sits on a spinner that never resolves and the error never reaches
+      // the component. 'always' is what makes failures actually surface.
+      networkMode: 'always',
+      // Never retry a 4xx. A 403 is a permission answer and a 404 is often
+      // "no contact record" — retrying either only delays the real message.
+      retry: (count, error) => {
+        const status = (error as { status?: number })?.status
+        if (typeof status === 'number' && status >= 400 && status < 500) return false
+        return count < 1
+      },
+    },
+    mutations: { retry: false, networkMode: 'always' },
+  },
+})
+```
+
+Read loading state from `isSuccess`, not `!isLoading && !error`. A query can sit pending with nothing in flight — paused, disabled, or never started — and inferring "no records" from that tells someone their data is gone when you never actually asked.
 
 **`src/auth.tsx` — session and token acquisition.** Expose `session`, `isBusy` (`inProgress !== 'none'` — mid-redirect is neither signed in nor signed out, and rendering a sign-in button there invites a second login on top of the one already running), `getToken`, `signIn`, `signOut`.
 

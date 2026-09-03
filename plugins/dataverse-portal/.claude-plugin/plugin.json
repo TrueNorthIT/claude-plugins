@@ -1,5 +1,5 @@
 {
   "name": "dataverse-portal",
   "description": "End-to-end portal scaffolder for the Dataverse Contact API. Builds a React + TypeScript + Tailwind SPA that signs citizens in with Microsoft Entra External ID (MSAL). Authenticates via the @truenorth-it/contact-admin CLI — no MCP registration needed, just one prompt and one browser click to authorize. Invoke by saying 'build a case portal', 'build a portal using <API URL>', or 'build me a bookings portal in scope X'.",
-  "version": "0.11.0"
+  "version": "0.12.0"
 }
