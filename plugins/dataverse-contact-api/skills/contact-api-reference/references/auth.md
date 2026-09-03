@@ -7,8 +7,7 @@ authorisation decision after that is internal to the API — see
 
 ## Discover the settings, do not hard-code them
 
-Each scope publishes its own IdP configuration. Ask the deployment rather than
-copying values between environments:
+Ask the deployment rather than copying values between environments:
 
 ```
 GET {API_URL}/.well-known/oauth-protected-resource
@@ -16,7 +15,7 @@ GET {API_URL}/.well-known/oauth-protected-resource
 
 ```json
 {
-  "resource": "https://api.dataverse-contact.tnapps.co.uk",
+  "resource": "<api-app-guid>",
   "authorization_servers": ["https://<tenant>.ciamlogin.com/<tenant>/v2.0"],
   "bearer_methods_supported": ["header"],
   "idp_provider": "entra-external-id",
@@ -30,6 +29,29 @@ Read the `idp_*` fields. They are provider-neutral and are the ones that will
 keep working. The `auth0_*` fields are still emitted, but purely for
 backwards compatibility with older clients — they carry the same values and
 should not be used in new work. The response is cached for a day.
+
+`resource` is the **audience**, not the API's base URL — it is byte-for-byte the
+same value as `idp_audience`. Expect either a bare GUID or the full
+`api://<guid>` Application ID URI, depending on how the app registration was
+set up; neither is a URL you can call.
+
+### This document is deployment-wide, not per-scope
+
+There is one `/.well-known/oauth-protected-resource` for the whole deployment
+and it reports the **default scope's** auth configuration. It happens to be
+right for most scopes, because an Entra scope that sets no `{SCOPE}__OIDC_*`
+values inherits the default scope's — but a scope that sets its own
+`{SCOPE}__OIDC_AUDIENCE` or `{SCOPE}__OIDC_ISSUER` does not, and discovery will
+not tell you so.
+
+| You are wiring | Trust discovery? |
+|---|---|
+| The `default` scope | Yes |
+| Any other scope | Only after confirming it sets no `{SCOPE}__OIDC_AUDIENCE` / `{SCOPE}__OIDC_ISSUER` of its own |
+
+The symptom is specific: sign-in succeeds, and every API call comes back
+`401 Token validation failed`, because the token was issued for the default
+scope's audience and this scope expects another.
 
 There is a matching `/.well-known/oauth-protected-resource/_admin` for the admin
 plane, which is a **different audience and a different token**. Do not point a
@@ -98,13 +120,20 @@ If no contact matches, the token still authenticates. You get a session, a
 
 | Route | Result |
 |---|---|
-| `/{scope}/me/...` | **404** `No Dataverse contact found for your account.` |
+| `/{scope}/me/...` | **404** `No Dataverse contact found for <email>` |
 | `/{scope}/team/...` | **404** — same |
 | `/{scope}/all/...` | works — `all` applies no join, so it tolerates a missing contact |
 | `/{scope}/me/whoami` | **200**, with `dataverseContact: null` |
 
-(A `POST` to create is the one place this surfaces as a 401 rather than a 404:
-`Could not resolve contact for authenticated user`. Same cause.)
+The message ends with the email the token carried, so **match on the prefix**,
+not on the whole string. A second wording, `No Dataverse contact found for your
+account.`, comes from the same failure reached down other paths (a lake-backed
+`/me` route, the MCP tools) — a client checking for either should check for
+`No Dataverse contact found`.
+
+`POST /me/{table}` is no different: contact resolution runs first and 404s
+there too. The handler does carry a `401 Could not resolve contact for
+authenticated user` behind it, but nothing reaches it.
 
 This is the failure that looks most like a bug and is least like one. The user
 signed in successfully, so the client shows them as logged in, and then every
@@ -155,7 +184,18 @@ rather than assuming the permission is wrong.
 
 ## The public tier needs no token at all
 
-`/{scope}/public/{table}` is unauthenticated and read-only, available only for
-tables published with `publicRead: true`. Use it for genuinely open reference
-data — service catalogues, opening times. Never reach for it to sidestep an
-auth problem: it exposes those rows to the entire internet.
+`GET /{scope}/public/{table}` is unauthenticated, available only for tables
+published with `publicRead: true`. Use it for genuinely open reference data —
+service catalogues, opening times. Never reach for it to sidestep an auth
+problem: it exposes those rows to the entire internet.
+
+It is read-only apart from one opt-in. A table that also sets
+`publicCreate: true` accepts an unauthenticated `POST /{scope}/public/{table}`,
+with no token, no contact resolution and no permission check — an anonymous
+enquiry form, in effect. Anyone on the internet can then insert rows into that
+table, so it is a decision to make per table and defend, not a default. Every
+other `public` write is a 405.
+
+Note what this does *not* change: `/{scope}/public/actions/{name}` still needs a
+token and a resolved contact unless the custom API sets `publicInvoke` — see
+`routes.md`.

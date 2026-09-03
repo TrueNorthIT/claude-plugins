@@ -13,7 +13,7 @@ may do. All of that lives inside the API.
 
 | Part | Values | Default if omitted |
 |---|---|---|
-| `subject` | the route name — `case`, `contact`, `casenotes`, … | required |
+| `subject` | the route's **permission subject** — usually the route name (`case`, `contact`), but the group name on any route that declares a `permissionGroup`. See below | required |
 | `operation` | exactly `write`, `create`, `lookup` or `invoke` — omitted means *read* | read |
 | `tier` | `me`, `team`, `all` | `me` |
 
@@ -26,8 +26,14 @@ So:
 | `case:all` | read every case |
 | `case:write` | edit your own cases (tier `me`, operation `write`) |
 | `case:write:team` | edit your team's cases |
-| `case:create` | create a case (create only ever exists at `me`) |
+| `case:create` | create a case. The grant only ever exists at `me` — a `publicCreate` table needs no grant at all |
 | `case:lookup` | use the lookup route on cases |
+| `approve-request:invoke` | invoke the `approve-request` custom API |
+
+`invoke` takes tiers like anything else, so `approve-request:invoke:all`
+satisfies `approve-request:invoke:team` and `approve-request:invoke`. The
+subject there is the custom API's own route name, not a table's — see
+`routes.md` for the `/public/actions/` surface it guards.
 
 A bare `case:write` is **tier `me`**, not "write anywhere". This trips people up
 because the tier is the *last* segment, so the two-segment form looks like it
@@ -42,13 +48,48 @@ than loudly: `case:wirte` grants read on a route that does not exist. When a
 grant appears to do nothing at all, check the spelling of the operation before
 anything else.
 
+## The subject is not always the route name
+
+A route may declare a `permissionGroup`. When it does, the group name **replaces
+the route name** as that route's permission subject, and every route in the
+group is opened by one set of grants. This is not an edge case: in the shipped
+`default` scope, ten of the seventeen route definitions are grouped.
+
+| Routes | Subject |
+|---|---|
+| `caseactivities`, `caseappointments`, `caseemails`, `casephonecalls`, `casetasks` | `caseactivity` |
+| `contactactivities`, `contactappointments`, `contactemails`, `contactphonecalls`, `contacttasks` | `contactactivity` |
+
+So granting `caseemails:team` does nothing at all. It is a well-formed string —
+subject `caseemails`, read, tier `team` — for a subject no route ever asks for,
+so it is accepted and never matches. The string that works is
+`caseactivity:team`, and it opens all five case-activity routes at once.
+
+Grouping is a per-scope decision, so it differs between deployments. The
+production `rcportal` scope puts `casenotes` in the `case` group and
+`quotedetail` in `quote`; the `default` scope leaves `casenotes` on its own
+subject. Knowing one scope tells you nothing about another.
+
+**Read the subject, do not infer it from the URL.** `GET /{scope}/schema`
+returns a `permission` field per table, which is the resolved subject the route
+will actually require:
+
+```bash
+curl -s "$API_URL/api/v2/$SCOPE/schema" | jq '.tables[] | {route: .name, permission}'
+```
+
+The 403 body is the other honest source — it names the subject the route asked
+for, not the route, so a grouped route announces its group the first time it
+refuses you. Compare that against `identity.permissions[]` from `whoami`, which
+is what the caller holds.
+
 ## What implies what — `permImplies`
 
 A held permission satisfies a required one when:
 
 | Rule | Example |
 |---|---|
-| The **subject must match exactly**. Never inferred across routes. | `case:all` does nothing for `casenotes` |
+| The **subject must match exactly**, after group resolution. Never inferred across routes. | `case:all` does nothing for `knowledgearticle`. It *does* serve `casenotes` on a scope that puts `casenotes` in the `case` group — the subjects are then the same string |
 | A **higher tier implies a lower one, for the same operation**. `all` > `team` > `me`. | `case:write:all` satisfies `case:write:team` and `case:write` |
 | **Read implies lookup.** | `case:team` satisfies `case:lookup:team` |
 | **Write, create and lookup never imply read.** | `case:write` alone does not let you `GET /me/case` |
@@ -114,7 +155,7 @@ grants nothing at all**. Not "read-only" — nothing. Every route, including pla
 reads, answers:
 
 ```
-403 Missing required permission: <route>
+403 Missing required permission: <subject>
 ```
 
 This is by far the most common reason a newly created scope appears dead on
@@ -139,6 +180,10 @@ never having been applied — see the `dataverse-terraform` plugin.
 | `No permissions for table 'case'. Requires any permission for this table.` | The `choices` route on a table whose choices are not published openly |
 | `Field 'customerid': the referenced account does not belong to you` | Not a permission at all — you tried to point a lookup at a row outside your own scope on a write |
 | `Not authorized to administer scope 'X'. Requires a Dataverse role of System Customizer or System Administrator…` | An `_admin` route with a valid but non-admin workforce token |
+
+The string after `Missing required permission:` is the **subject**, not the
+route. On a grouped route the two differ, and the message is telling you the one
+to grant — copy it verbatim rather than reconstructing it from the URL.
 
 A 403 is normally about the *permission list*. A 404 is about the *join* — the
 row exists but does not reach you, or the route does not serve that tier at all.

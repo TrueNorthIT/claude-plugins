@@ -34,7 +34,7 @@ not scaffold anything — see the sibling skills below for that.
 | `me` | Rows reachable from the caller's contact along the table's `contactJoinPath`. `alternateContactJoinPaths` are OR'd in, so a row qualifies if **any** path reaches it. | Token + a matching Dataverse contact |
 | `team` | Rows reachable along `teamJoinPath` — typically the caller's account, i.e. their colleagues' rows. | Token + a matching Dataverse contact |
 | `all` | Every row in the table. No join is applied. | Token only — no Dataverse contact required |
-| `public` | Read-only, unauthenticated. Only for tables published with `publicRead: true`. | None |
+| `public` | Unauthenticated. Read on tables published with `publicRead: true`; **create too**, on the few that also set `publicCreate: true`. | None |
 
 **`me` is not `ownerid`.** It is a declared join path, configured per table. A
 row you "own" in Dataverse is invisible at `me` if the join path does not reach
@@ -53,17 +53,28 @@ What is *absent* here matters as much as what is present:
 | Verb | Path | Permission required |
 |---|---|---|
 | `GET` | `/{tier}/{table}` | `<subj>` / `<subj>:team` / `<subj>:all` |
-| `POST` | `/me/{table}` | `<subj>:create` — **`me` only. Other tiers answer 405.** |
+| `POST` | `/me/{table}` | `<subj>:create` — the create route for a signed-in caller |
+| `POST` | `/public/{table}` | **none** — unauthenticated and permission-free, but only where the table sets `publicCreate: true` |
 | `GET` | `/{tier}/{table}/{id}` | the tier's read permission |
 | `PATCH` | `/{tier}/{table}/{id}` | `<subj>:write` / `:write:team` / `:write:all` |
 | `GET` | `/{tier}/lookup/{table}?search=` | `<subj>:lookup[:team\|:all]` |
 | `GET` | `/{tier}/aggregate/{table}?aggregate=count&groupBy=` | the tier's read permission |
 | `GET` | `/{tier}/changes/{table}?deltaToken=` | the tier's read permission |
+| `GET`/`POST` | `/{scope}/public/actions/{name}` | `<name>:invoke` — **and a token and a resolved contact**, despite the `public` segment, unless the custom API sets `publicInvoke`. `GET` = function, `POST` = action |
 | `GET` | `/{scope}/me/whoami` | a valid token |
 | `GET` | `/{scope}/schema[?table=]`, `/{scope}/openapi.json` | none |
 | `GET` | `/{scope}/choices/{table}[/{field}]` | any permission on that subject |
 | `GET` | `/api/v2/_admin/scopes` | none — and note `_admin` comes **before** the scope |
 | `GET` | `/api/v2/_admin/{scope}/table-manager/defaults` | `admin:{scope}` — returns `{scope, defaults, effective}` |
+
+`<subj>` is the route's **permission subject**, which is usually the route name
+but is the group name on any route that declares a `permissionGroup` — read it
+off `/{scope}/schema`, do not assume it from the URL. See
+`references/permissions.md`.
+
+`POST` on `team` or `all` is **always** a 405, and on `public` it is a 405
+unless that one table opted in with `publicCreate`. There is no other create
+path.
 
 **There is no `DELETE` anywhere on the data tier.** Record routes allow `GET`
 and `PATCH` only; list routes allow `GET` and `POST` only. Deactivating a row is
@@ -101,7 +112,7 @@ you write a line of client code.
    `oid` and not `sub`. No matching contact means the token is fine and `/me`
    still 404s. → `references/auth.md`
 4. **A scope with no published `defaults.json` grants nothing** — every route,
-   reads included, answers `403 Missing required permission: <route>`. This is
+   reads included, answers `403 Missing required permission: <subject>`. This is
    the single most common reason a freshly created scope appears dead.
    → `references/permissions.md`
 5. **Permissions are cached for 5 minutes.** A grant you just made is not live
