@@ -112,14 +112,19 @@ contact-admin login          # device code against workforce Entra
 ### `test-query` is the join debugger
 
 ```bash
-contact-admin tables test-query <route> --tier me --contact-id <guid>
-contact-admin tables test-query <route> --tier team --contact-id <guid>
+contact-admin tables test-query <route> --tier me   --contact-id <guid>
+contact-admin tables test-query <route> --tier team --account-id <guid>
 ```
 
-It executes the configured join for a specific contact and shows what comes
-back. This is how you verify a `contactJoinPath` or `teamJoinPath` **without a
-portal, a browser or a sign-in** — the fastest way to settle whether an empty
-`me` list is a join problem or genuinely no data. See `troubleshooting.md`.
+**The two tiers take different inputs**, because they scope by different things:
+`me` needs `--contact-id` and `team` needs `--account-id`. Passing the wrong one
+is refused outright — `tier 'team' requires accountId.` — rather than quietly
+running unscoped. With no `--tier` at all it simulates `all` and needs neither.
+
+It executes the configured join for that identity and shows what comes back.
+This is how you verify a `contactJoinPath` or `teamJoinPath` **without a portal,
+a browser or a sign-in** — the fastest way to settle whether an empty `me` list
+is a join problem or genuinely no data. See `troubleshooting.md`.
 
 ## Forging a key for local testing
 

@@ -30,22 +30,27 @@ below are indistinguishable from each other at the call site and obvious in
 | `401 Missing or malformed Authorization header` | No `Bearer` prefix, or no header at all | Check the client is attaching the token, not just acquiring it |
 | `401 Token has expired` / `Invalid token` / `Token validation failed: …` | Wrong audience, wrong issuer, or an **ID token sent instead of an access token** | Compare the token's `aud`/`iss` with `idp_audience`/`idp_issuer` from `/.well-known/oauth-protected-resource` |
 | `401 Token does not contain an email claim` | The IdP is not emitting `email` in access tokens | Fix claims mapping on the app registration, or set the scope's `OIDC_EMAIL_CLAIM` |
-| `403 Missing required permission: <route>` on **every** route including reads | The scope has **no published `defaults.json`** | Publish defaults. In Terraform, apply `permissions_sync` |
+| `403 Missing required permission: <subject>` on **every** route including reads | The scope has **no published `defaults.json`** | Publish defaults. In Terraform, apply `permissions_sync` |
+| `403 Missing required permission: <something>` naming a subject that is not the route you called | The route declares a `permissionGroup`, so its subject is the group name | Grant the string in the message. Confirm with the `permission` field on `/{scope}/schema` — see `permissions.md` |
 | `403 Missing required permission: <subj>:write:team` | You hold `<subj>:write`, which is tier `me` and never implies `team` | Grant `<subj>:write:team` explicitly — see `permissions.md` |
 | `403` that persists after a grant | The 5-minute permission cache | Wait it out. Confirm with `whoami`, which shows the resolved list |
 | A grant that appears to do nothing at all | A misspelled operation — an unknown one is absorbed into the subject silently | Check it against `write` / `create` / `lookup` / `invoke` |
-| `404 No Dataverse contact found for your account.` on `/me/*` and `/team/*`, while `/all/*` works | Authenticated with no matching Dataverse contact | Check `contact.emailaddress1` against the sign-in email — see `auth.md` |
+| `404 No Dataverse contact found for …` on `/me/*` and `/team/*`, while `/all/*` works | Authenticated with no matching Dataverse contact | Check `contact.emailaddress1` against the sign-in email — see `auth.md`. The message ends with the email, so match on the prefix |
 | `404 Table "X" does not support /me access. Use /all/X instead.` | The route declares no contact join path | A configuration fact, not a permission. No grant will change it |
 | `404 No company account is available for team access…` | No account on the contact, or no `X-Company-Id` selected | The message names both models; supply whichever input is missing |
 | `404` on one `{id}` that you know exists | The row exists but the join does not reach you at that tier | Try the same id at `team`, then `all`. If `all` finds it, it is a join question, not a data question |
-| `400 Invalid pagination state. Use the cursor from 'page.next'…` | A `skip` without a cursor | Follow `page.next` verbatim; there is no offset paging |
+| `400 Invalid pagination state. Use the cursor from 'page.next'…` | A `skip` without a cursor | Take the cursor from `page.next`; there is no offset paging |
+| Page 2 returns rows page 1 filtered out, or is missing fields page 1 had | `page.next` carries only `top`, `cursor` and `orderBy` | Re-append your `select` / `filter` / `filterLogic` / `expand` to it — see `querying.md` |
 | `400 Cannot filter by unknown field …` | A misspelled field in `select` / `filter` / `orderBy` / `expand` | Take the "did you mean" suggestion, or list the real fields with `/{scope}/schema?table={table}` |
 | `400 Operator 'contains' is not valid for choice field …` | Wrong operator for the field's type | The message names the allowed set |
-| `405 Method not allowed` on a create | `POST` to a tier other than `me` | `POST /me/{table}` is the only create route. `Access-Control-Allow-Methods` lists what the route does take |
-| `405 Public access is read-only` / `Lake-backed tables are read-only` | A write against the `public` tier, or a lake-served route | Neither is fixable from the client |
+| `405 Method not allowed` on a create | `POST` to `team` or `all` | Create is `me`-only. Do not read `Access-Control-Allow-Methods` — it advertises the POST the route just refused |
+| `405 Public access is read-only` | `POST /public/{table}` on a table that does not set `publicCreate` | Not fixable from the client. Public create is a per-table opt-in — see `routes.md` |
+| `405 Lake-backed tables are read-only` | Any write on a lake-served route | Not fixable from the client |
+| `405 Custom API "X" is a function — use GET, not POST` | Wrong verb on `/public/actions/{name}` | `GET` for functions, `POST` for actions |
+| `401` on `/public/actions/{name}` | The path says `public` but the action is not `publicInvoke` | Send a bearer token; the caller also needs a resolved contact and `{name}:invoke` |
 | Sign-in fails at the Microsoft page, never reaches the app | `AADSTS50011` — redirect URI mismatch, usually a trailing slash | Make the app registration and the client config byte-identical. No trailing slash |
 | A list returns `200` and **zero rows**, no error | The join path does not reach any rows | See below — this is its own diagnosis |
-| Only 100 rows come back when you asked for 500 | `top` is clamped to 100 silently, not rejected | Page with `page.next` |
+| Only 100 rows come back when you asked for 500 | `top` is clamped to 100 silently, not rejected | Page with `page.next`, re-appending your query options as above |
 | `_label` fields missing | `X-Data-Source: lake` — lake-backed routes get no label enrichment | Read the raw value, or serve the route from live Dataverse |
 
 ## The empty list: two very different failures

@@ -48,7 +48,7 @@ If either is missing, say so before scaffolding rather than after.
 | API URL | Any `https://…` URL in the prompt whose host looks like an API endpoint | `API_URL` — the base for all HTTP + MCP endpoints |
 | Scope | "in scope X" / "scope=X" / "use scope X" | `TARGET_SCOPE` — URL scope + provisioning target |
 | Access tier | "me" / "team" / "all" | `TIER` |
-| Target table | "case portal" → `incident` + `casenotes`; "booking" → `msdyn_bookableresourcebooking`; etc. | Drives table publishing (use reference schemas for case portals, setup-table for others) |
+| Target table | "case portal" → `case` + `casenotes`; "booking" → `msdyn_bookableresourcebooking`; etc. | Drives table publishing (use reference schemas for case portals, setup-table for others) |
 | Project name | Repeats the portal noun (`case-portal`, `bookings-pilot`) or explicit "project X" | Folder name + Vite project name |
 
 Defaults when absent:
@@ -64,12 +64,12 @@ For the URL, tier, and project name: state what you assumed in one sentence befo
 
 ## Version check
 
-**Expected plugin version: 0.13.0**
+**Expected plugin version: 0.14.0**
 
 Before doing any work, verify the installed plugin version. Read the plugin manifest at `../../.claude-plugin/plugin.json` (relative to this skill file) using the Read tool:
 
-- If the `version` field matches `0.13.0` — proceed.
-- If the `version` field is **older** — tell the user: "Your dataverse-portal plugin is v`<installed>` but this skill expects v0.13.0. Run `/plugin marketplace update truenorthit` and then `/reload-plugins` to get the latest version." Then stop.
+- If the `version` field matches `0.14.0` — proceed.
+- If the `version` field is **older** — tell the user: "Your dataverse-portal plugin is v`<installed>` but this skill expects v0.14.0. Run `/plugin marketplace update truenorthit` and then `/reload-plugins` to get the latest version." Then stop.
 - If the file cannot be read — warn the user but proceed.
 
 ## Workflow
@@ -88,10 +88,32 @@ IDP_PROVIDER=$(field idp_provider)
 IDP_ISSUER=$(field idp_issuer)
 IDP_AUDIENCE=$(field idp_audience)
 
-# Entra issuers are https://<tenantId>.ciamlogin.com/<tenantId>/v2.0 —
-# the tenant GUID appears twice, so either occurrence will do.
+# This skill only handles Entra External ID (CIAM). Everything below assumes a
+# ciamlogin.com authority, so check the provider before parsing anything.
+if [ "$IDP_PROVIDER" != "entra-external-id" ]; then
+  echo "idp_provider is '$IDP_PROVIDER' — this skill only scaffolds Entra External ID portals." >&2
+  exit 1
+fi
+
+# Entra External ID (CIAM) issuers are
+# https://<tenantId>.ciamlogin.com/<tenantId>/v2.0 — the tenant GUID appears
+# twice, so either occurrence will do.
 TENANT_ID=$(echo "$IDP_ISSUER" | sed -E 's#^https://([^.]+)\.ciamlogin\.com/.*#\1#')
-ENTRA_API_SCOPE="api://${IDP_AUDIENCE}/access_as_user"
+
+# sed passes non-matching input through UNCHANGED, so a workforce-Entra issuer
+# (login.microsoftonline.com/<tid>/v2.0 — also reported as entra-external-id)
+# leaves the whole URL in TENANT_ID, and the authority becomes
+# https://https://login.microsoftonline.com/...ciamlogin.com/... — an app that
+# builds, runs, and can never sign anyone in. Fail loudly here instead.
+if ! [[ "$TENANT_ID" =~ ^[0-9a-f-]{36}$ ]]; then
+  echo "idp_issuer is not a ciamlogin.com CIAM issuer: $IDP_ISSUER" >&2
+  exit 1
+fi
+
+# idp_audience may already be the full Application ID URI (api://<guid>) or a
+# bare GUID, depending on how the deployment was configured. Strip any leading
+# api:// before appending, or the scope ends up api://api://<guid>/…
+ENTRA_API_SCOPE="api://${IDP_AUDIENCE#api://}/access_as_user"
 ```
 
 ```bash
@@ -103,9 +125,9 @@ Field map from `.well-known`:
 
 | JSON field | What it is / where it goes |
 |---|---|
-| `idp_provider` | Which IdP the deployment uses. **Branch on this.** `entra-external-id` (also `azure-b2c`, and workforce Entra) → everything below. Anything else → stop, and tell the user this skill only scaffolds Entra portals. |
-| `idp_issuer` | `https://<tenantId>.ciamlogin.com/<tenantId>/v2.0`. Parse the tenant GUID out of it → `VITE_ENTRA_TENANT_ID` |
-| `idp_audience` | The API app registration's client ID — a **bare GUID**, not prefixed with `api://`. Build `api://<idp_audience>/access_as_user` from it → `VITE_ENTRA_API_SCOPE` |
+| `idp_provider` | Which IdP the deployment uses. **Branch on this, together with `idp_issuer`.** `entra-external-id` **and** a `ciamlogin.com` issuer → everything below. Anything else stops the skill: `auth0`, `azure-b2c`, and `entra-external-id` on a workforce (`login.microsoftonline.com`) issuer all take a different authority shape. Tell the user this skill only scaffolds Entra External ID (CIAM) portals — the authority, `knownAuthorities` and tenant parsing below are all CIAM-shaped, and on any other issuer they produce an app that builds, runs, and signs nobody in. |
+| `idp_issuer` | `https://<tenantId>.ciamlogin.com/<tenantId>/v2.0`. Parse the tenant GUID out of it → `VITE_ENTRA_TENANT_ID`. Guard the parse — see the shell above |
+| `idp_audience` | The audience the API validates. Either a **bare GUID** or the full `api://<guid>` Application ID URI — the shipped onboarding Terraform sets the URI form. **Strip a leading `api://` before appending `/access_as_user`** → `VITE_ENTRA_API_SCOPE` |
 | `resource` | Same value as `idp_audience`. Informational |
 | `auth0_*` | **Ignore.** Backwards-compatibility aliases from before the Entra migration. On an Entra deployment `auth0_domain` holds a `ciamlogin.com` URL, so feeding it to an Auth0 SDK produces an app that builds, runs, and never signs anyone in. |
 
@@ -196,33 +218,39 @@ Skip tables that are already published. For each table the portal needs that is 
 
 For **case portals**, ALWAYS use these exact schemas. Do NOT scaffold `incident` or `annotation` from discovery — the scaffolder gets the join paths, filters, and polymorphic lookups wrong.
 
-Publish `incident` first, then `casenotes`:
+Publish `case` first, then `casenotes`. The **route name is `case`** — the
+Dataverse table is `incident`, but the route the SDK and the generated frontend
+call is `case`, matching the platform's own `case.schema.json`. Publish it as
+`incident` and every read and write in the scaffolded portal 404s. The draft key
+and the `--tables` value must both be the route name, or `publish` finds no
+draft:
 
 ```bash
-contact-admin tables save-draft incident --schema '<INCIDENT_SCHEMA>' --url "${API_URL}" --scope "${TARGET_SCOPE}"
-contact-admin tables publish --tables incident --url "${API_URL}" --scope "${TARGET_SCOPE}"
+contact-admin tables save-draft case --schema '<CASE_SCHEMA>' --url "${API_URL}" --scope "${TARGET_SCOPE}"
+contact-admin tables publish --tables case --url "${API_URL}" --scope "${TARGET_SCOPE}"
 contact-admin tables save-draft casenotes --schema '<CASENOTES_SCHEMA>' --url "${API_URL}" --scope "${TARGET_SCOPE}"
 contact-admin tables publish --tables casenotes --url "${API_URL}" --scope "${TARGET_SCOPE}"
 ```
 
-**INCIDENT_SCHEMA** — the `incident` table (cases):
+**CASE_SCHEMA** — the `case` route over the Dataverse `incident` table:
 ```json
-{"routeName":"incident","description":"Cases and support tickets","dataverseTable":"incidents","dataverseLogicalName":"incident","requiredPermission":"incident","primaryKey":"incidentid","defaultSelect":["incidentid","title","ticketnumber","statecode","statuscode","prioritycode","casetypecode","createdon","modifiedon"],"contactJoinPath":[{"table":"contacts","from":"customerid_contact","key":"contactid"}],"alternateContactJoinPaths":[[{"table":"contacts","from":"primarycontactid","key":"contactid"}]],"teamJoinPath":[{"table":"accounts","from":"customerid_account","key":"accountid"}],"createDefaults":[{"field":"customerid_account","bindTo":"account","entitySet":"accounts"},{"field":"primarycontactid","bindTo":"contact","entitySet":"contacts"}],"lookupFields":["ticketnumber","title"],"lookupSearchContains":["ticketnumber","title"],"filters":["statecode eq 0"],"fields":{"incidentid":{"type":"string","description":"Unique case identifier","readOnly":true},"ticketnumber":{"type":"string","description":"Case number","readOnly":true},"title":{"type":"string","description":"Case title"},"description":{"type":"string","description":"Case description"},"statecode":{"type":"choice","description":"Case status"},"statuscode":{"type":"choice","description":"Status reason"},"prioritycode":{"type":"choice","description":"Priority"},"casetypecode":{"type":"choice","description":"Case type"},"caseorigincode":{"type":"choice","description":"Case origin"},"createdon":{"type":"datetime","description":"Date created","readOnly":true},"modifiedon":{"type":"datetime","description":"Date last modified","readOnly":true},"customerid":{"type":"lookup","description":"Customer (contact or account)","readOnly":true},"primarycontactid":{"type":"lookup","description":"Primary contact","lookupTable":"contact"},"ownerid":{"type":"lookup","description":"Record owner","readOnly":true}}}
+{"routeName":"case","description":"Cases and support tickets","dataverseTable":"incidents","dataverseLogicalName":"incident","requiredPermission":"case","primaryKey":"incidentid","aliases":["incident","incidents","cases"],"defaultSelect":["incidentid","title","ticketnumber","statecode","statuscode","prioritycode","casetypecode","createdon","modifiedon"],"contactJoinPath":[{"table":"contacts","from":"customerid_contact","key":"contactid"}],"alternateContactJoinPaths":[[{"table":"contacts","from":"primarycontactid","key":"contactid"}]],"teamJoinPath":[{"table":"accounts","from":"customerid_account","key":"accountid"}],"createDefaults":[{"field":"customerid_account","bindTo":"account","entitySet":"accounts"},{"field":"primarycontactid","bindTo":"contact","entitySet":"contacts"}],"lookupFields":["ticketnumber","title"],"lookupSearchContains":["ticketnumber","title"],"filters":["statecode eq 0"],"fields":{"incidentid":{"type":"string","description":"Unique case identifier","readOnly":true},"ticketnumber":{"type":"string","description":"Case number","readOnly":true},"title":{"type":"string","description":"Case title"},"description":{"type":"string","description":"Case description"},"statecode":{"type":"choice","description":"Case status"},"statuscode":{"type":"choice","description":"Status reason"},"prioritycode":{"type":"choice","description":"Priority"},"casetypecode":{"type":"choice","description":"Case type"},"caseorigincode":{"type":"choice","description":"Case origin"},"createdon":{"type":"datetime","description":"Date created","readOnly":true},"modifiedon":{"type":"datetime","description":"Date last modified","readOnly":true},"customerid":{"type":"lookup","description":"Customer (contact or account)","readOnly":true},"primarycontactid":{"type":"lookup","description":"Primary contact","lookupTable":"contact"},"ownerid":{"type":"lookup","description":"Record owner","readOnly":true}}}
 ```
 
 Why this schema matters:
+- `routeName` is `case`, and `aliases` keep `incident`/`incidents`/`cases` working for anyone who guesses the Dataverse name. `requiredPermission` is `case`, so the permission strings in step 10 are `case`, `case:write`, `case:create`, `case:lookup`
 - `contactJoinPath` uses `customerid_contact` — NOT `responsiblecontactid` or `ownerid` which the scaffolder picks and which returns no data for `/me` routes
 - `createDefaults` auto-binds the logged-in user's contact and account when creating cases
 - `filters: ["statecode eq 0"]` shows only active cases
 
 **CASENOTES_SCHEMA** — annotations filtered to cases (route name is `casenotes`, NOT `annotation`):
 ```json
-{"routeName":"casenotes","description":"Notes and annotations linked to cases","dataverseTable":"annotations","dataverseLogicalName":"annotation","requiredPermission":"casenotes","primaryKey":"annotationid","aliases":["casenote"],"defaultSelect":["annotationid","subject","notetext","incidentid","isdocument","createdon","modifiedon"],"contactJoinPath":[{"table":"incidents","from":"objectid_incident","key":"incidentid"},{"table":"contacts","from":"customerid_contact","key":"contactid"}],"alternateContactJoinPaths":[[{"table":"incidents","from":"objectid_incident","key":"incidentid"},{"table":"contacts","from":"primarycontactid","key":"contactid"}]],"teamJoinPath":[{"table":"incidents","from":"objectid_incident","key":"incidentid"},{"table":"accounts","from":"customerid_account","key":"accountid"}],"filters":["objecttypecode eq 'incident'"],"parentTable":{"table":"incident","navigationProperty":"objectid_incident"},"lookupFields":["subject"],"lookupSearchContains":["subject"],"fields":{"annotationid":{"type":"string","description":"Unique note identifier","readOnly":true},"subject":{"type":"string","description":"Note subject / title"},"notetext":{"type":"string","description":"Note body text"},"isdocument":{"type":"boolean","description":"Whether the note has a file attachment","readOnly":true},"filename":{"type":"string","description":"Attachment file name","readOnly":true},"filesize":{"type":"number","description":"Attachment file size in bytes","readOnly":true},"mimetype":{"type":"string","description":"Attachment MIME type","readOnly":true},"incidentid":{"type":"lookup","description":"Parent case","lookupTable":"incident","valueField":"objectid","bindField":"objectid_incident"},"objecttypecode":{"type":"string","description":"Regarding entity type","readOnly":true},"ownerid":{"type":"lookup","description":"Record owner","readOnly":true},"createdon":{"type":"datetime","description":"Date created","readOnly":true},"modifiedon":{"type":"datetime","description":"Date last modified","readOnly":true}}}
+{"routeName":"casenotes","description":"Notes and annotations linked to cases","dataverseTable":"annotations","dataverseLogicalName":"annotation","requiredPermission":"casenotes","primaryKey":"annotationid","aliases":["casenote"],"defaultSelect":["annotationid","subject","notetext","incidentid","isdocument","createdon","modifiedon"],"contactJoinPath":[{"table":"incidents","from":"objectid_incident","key":"incidentid"},{"table":"contacts","from":"customerid_contact","key":"contactid"}],"alternateContactJoinPaths":[[{"table":"incidents","from":"objectid_incident","key":"incidentid"},{"table":"contacts","from":"primarycontactid","key":"contactid"}]],"teamJoinPath":[{"table":"incidents","from":"objectid_incident","key":"incidentid"},{"table":"accounts","from":"customerid_account","key":"accountid"}],"filters":["objecttypecode eq 'incident'"],"parentTable":{"table":"case","navigationProperty":"objectid_incident"},"lookupFields":["subject"],"lookupSearchContains":["subject"],"fields":{"annotationid":{"type":"string","description":"Unique note identifier","readOnly":true},"subject":{"type":"string","description":"Note subject / title"},"notetext":{"type":"string","description":"Note body text"},"isdocument":{"type":"boolean","description":"Whether the note has a file attachment","readOnly":true},"filename":{"type":"string","description":"Attachment file name","readOnly":true},"filesize":{"type":"number","description":"Attachment file size in bytes","readOnly":true},"mimetype":{"type":"string","description":"Attachment MIME type","readOnly":true},"incidentid":{"type":"lookup","description":"Parent case","lookupTable":"incident","valueField":"objectid","bindField":"objectid_incident"},"objecttypecode":{"type":"string","description":"Regarding entity type","readOnly":true},"ownerid":{"type":"lookup","description":"Record owner","readOnly":true},"createdon":{"type":"datetime","description":"Date created","readOnly":true},"modifiedon":{"type":"datetime","description":"Date last modified","readOnly":true}}}
 ```
 
 Why this schema matters:
 - Route name is `casenotes` — do NOT publish a generic `annotation` route
-- `lookupTable` uses `"incident"` (the Dataverse logical name) so it resolves in any scope
+- `lookupTable` uses `"incident"` (the Dataverse logical name) so it resolves in any scope. `parentTable.table` is different on purpose — it names the **route** (`case`), not the logical name
 - `incidentid` has `valueField: "objectid"` and `bindField: "objectid_incident"` for the polymorphic lookup — without this, writes fail with "Invalid property 'incidentid'"
 - `contactJoinPath` is two hops: annotation → incident → contact (via `customerid_contact`)
 - `filter: ["objecttypecode eq 'incident'"]` restricts to case-linked notes only
@@ -341,6 +369,11 @@ npm install
 npm install @azure/msal-browser@^5.18 @azure/msal-react@^5.5 react-router-dom \
   @tanstack/react-query @truenorth-it/dataverse-client
 npm install -D tailwindcss @tailwindcss/vite
+
+# The react-ts template ships no `typecheck` script — `npm run build` is the only
+# thing that runs tsc, and it also bundles. Add the standalone gate, because
+# step 9 depends on it to catch bad SDK query shapes before the user does.
+npm pkg set scripts.typecheck="tsc --noEmit"
 ```
 
 Generate code based on the table schema from step 6. The file layout should be:
@@ -460,18 +493,21 @@ const queryClient = new QueryClient({
     queries: {
       staleTime: 60_000,
       refetchOnWindowFocus: false,
-      // Query's retryer only continues while the tab is focused. A scheduled
-      // retry in a background tab PAUSES, leaving status at 'pending' — so the
-      // user sits on a spinner that never resolves and the error never reaches
-      // the component. 'always' is what makes failures actually surface.
-      networkMode: 'always',
-      // Never retry a 4xx. A 403 is a permission answer and a 404 is often
-      // "no contact record" — retrying either only delays the real message.
+      // Never retry a 4xx, and this matters more than it looks. Query's retryer
+      // only continues while the tab is focused: a scheduled retry in a hidden
+      // tab PAUSES, and the query is left at status 'pending' even though it
+      // has already failed — so the user sits on a spinner that never resolves
+      // and the real cause sits unread in `fetchFailureReason`. A 403 is a
+      // permission answer and a 404 is often "no contact record"; neither will
+      // succeed on a second attempt, so failing fast is what makes the error
+      // reach the component at all. Only 5xx and transport failures retry.
       retry: (count, error) => {
         const status = (error as { status?: number })?.status
         if (typeof status === 'number' && status >= 400 && status < 500) return false
         return count < 1
       },
+      // The other half: an offline verdict should not park a request either.
+      networkMode: 'always',
     },
     mutations: { retry: false, networkMode: 'always' },
   },
@@ -539,11 +575,13 @@ const cases = await client.me.list<Case>("case", {
   // Add filters like this:
   // filter: { field: "statuscode", operator: "eq", value: 1 },
   //
-  // Or combine multiple:
-  // filter: { and: [
+  // Or combine multiple — an ARRAY of conditions plus filterLogic.
+  // There is no { and: [...] } wrapper:
+  // filter: [
   //   { field: "prioritycode", operator: "eq", value: 1 },
   //   { field: "statecode", operator: "eq", value: 0 },
-  // ]},
+  // ],
+  // filterLogic: "and",   // "and" is the default; "or" is the alternative
 });
 ```
 
@@ -560,32 +598,52 @@ export async function createCase(client: DataverseClient, input: Partial<Case>) 
 }
 ```
 
-**Include working examples in hook files** — show loading, error, empty states, and refresh:
+**Include working examples in hook files** — show loading, error, empty states, and refresh. Every hook is TanStack Query; `useState` + `useEffect` fetching is not an option here, and a mutation invalidates rather than hand-patching the cache:
 
 ```ts
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+
 export function useCases() {
   const client = useDataverseClient();
-  const [cases, setCases] = useState<Case[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const query = useQuery({
+    // The key is the cache identity AND what mutations invalidate. Keep the
+    // table name first and the view second, so ['case'] invalidates every view.
+    queryKey: ["case", "list"],
+    queryFn: async () => {
+      // ApiError carries .status and .message straight from the API response,
+      // so the component can branch on 404 (no contact) vs 403 (no permission).
+      const res = await fetchCases(client);
+      return res.data ?? [];
+    },
+  });
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await fetchCases(client);
-      setCases(result.data);
-    } catch (err) {
-      // ApiError has .status and .message from the API response
-      setError(err instanceof Error ? err.message : "Failed to load cases");
-    } finally {
-      setLoading(false);
-    }
-  }, [client]);
+  return {
+    cases: query.data ?? [],
+    // `isSuccess`, not `!isLoading && !error` — see the note above. Only
+    // isSuccess means the API answered, and only then is an empty list true.
+    isSuccess: query.isSuccess,
+    isPending: query.isPending,
+    // Background refetch of data already on screen — show a subtle indicator,
+    // not the loading skeleton.
+    isRefreshing: query.isFetching && !query.isPending,
+    error: query.error,
+    refresh: query.refetch,
+  };
+}
 
-  useEffect(() => { refresh(); }, [refresh]);
+// Writes go through useMutation. Invalidate on success rather than seeding the
+// cache from the response: create and PATCH responses come back with no expand,
+// so writing one into an expanded record's cache entry blanks the joined names.
+export function useCreateCase() {
+  const client = useDataverseClient();
+  const queryClient = useQueryClient();
 
-  return { cases, loading, error, refresh };
+  return useMutation({
+    mutationFn: (input: Partial<Case>) => createCase(client, input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["case"] });
+    },
+  });
 }
 ```
 
@@ -595,8 +653,9 @@ export function useCases() {
 // TODO: Add pagination — the SDK returns @odata.nextLink when there
 //       are more results. Pass { top: 25 } and implement next/prev.
 //
-// TODO: Add inline status update — call updateCase(client, id, { statuscode: 5 })
-//       then refresh(). The SDK handles the PATCH request.
+// TODO: Add inline status update — a useMutation calling
+//       updateCase(client, id, { statuscode: 5 }), invalidating ['case'] on
+//       success. The SDK handles the PATCH request.
 //
 // TODO: Add search — use the filter option:
 //       filter: { field: "title", operator: "contains", value: searchTerm }
@@ -699,12 +758,15 @@ const active = await client.me.list<Case>("case", {
   filter: { field: "statuscode", operator: "eq", value: 1 },
 });
 
-// Composite filter
+// Composite filter — an array, combined by `filterLogic`.
+// `QueryOptions.filter` is `FilterCondition | FilterCondition[]`; there is no
+// `{ and: [...] }` shape, and passing one type-errors.
 const urgent = await client.me.list<Case>("case", {
-  filter: { and: [
+  filter: [
     { field: "prioritycode", operator: "eq", value: 1 },
     { field: "statecode", operator: "eq", value: 0 },
-  ]},
+  ],
+  filterLogic: "and",   // default; use "or" for the alternative
 });
 ```
 
@@ -718,7 +780,7 @@ Three of the five values come from step 0. The fourth is the user's.
 
 > I need the **client ID of the Entra app registration** for this portal — a GUID from your Entra External ID tenant.
 >
-> If one doesn't exist yet, it takes two minutes in the Azure portal: **App registrations → New registration**, then **Authentication → Add a platform → Single-page application** with `http://localhost:5173` as the redirect URI, then **API permissions → My APIs →** the API app → tick `access_as_user` → **Grant admin consent**. Full steps: `dataverse-contact-api/docs/SETUP-AUTH.md` §1b.
+> If one doesn't exist yet, it takes two minutes in the Azure portal: **App registrations → New registration**, then **Authentication → Add a platform → Single-page application** with `http://localhost:5173` as the redirect URI, then **API permissions → My APIs →** the API app → tick `access_as_user` → **Grant admin consent**.
 >
 > Paste the Application (client) ID and I'll finish the wiring.
 
@@ -731,13 +793,14 @@ Then write `.env.example` and `.env` with every value filled in:
 ```
 VITE_ENTRA_TENANT_ID=${TENANT_ID}                       # parsed from idp_issuer
 VITE_ENTRA_CLIENT_ID=<the SPA app registration client ID the user gave you>
-VITE_ENTRA_API_SCOPE=api://${IDP_AUDIENCE}/access_as_user
+VITE_ENTRA_API_SCOPE=${ENTRA_API_SCOPE}                 # from step 0 — api://<guid>/access_as_user
 VITE_API_BASE_URL=${API_URL}                            # origin only — no trailing slash, no path
 VITE_API_SCOPE=${TARGET_SCOPE}
 ```
 
 Notes worth putting in `.env.example` as comments:
 
+- `VITE_ENTRA_API_SCOPE` carries exactly **one** `api://` prefix. `idp_audience` frequently already holds the full Application ID URI, so blindly prefixing it yields `api://api://<guid>/access_as_user`, which Entra rejects as an unknown scope and no one can sign in.
 - `VITE_API_BASE_URL` is the **origin only**. The SDK builds every URL as `${base}/api/v2/${scope}${path}`, so a trailing slash or a `/api/v2` suffix produces doubled paths and 404s.
 - Vite inlines `VITE_*` at **build time**. Changing them on a host without a redeploy does nothing — a real trap on Vercel, where the variable looks set and the bundle still carries the old value.
 - Nothing here is secret. `clientId`, the authority, the API scope string and the API URL are all public and ship in the bundle by design.
@@ -810,7 +873,7 @@ If `access grant` returns `found: false`, there is no Dataverse **contact** with
 - Skill asks: "This API has scopes: default, case-portal. Use one of those, or create a new scope?"
 - User: "default".
 - `contact-admin login --scope default` — stores key.
-- `contact-admin tables list` finds existing `incident` + `casenotes` — no setup-table needed.
+- `contact-admin tables list` finds existing `case` + `casenotes` — no setup-table needed.
 - Scaffolds frontend, then asks for the SPA client ID. One prompt, one browser click, one GUID, done.
 
 ### "build me a bookings portal"
@@ -827,7 +890,7 @@ If `access grant` returns `found: false`, there is no Dataverse **contact** with
 
 - Scope explicitly named.
 - `contact-admin login --scope case-portal` — scope auto-created on approval if it doesn't exist.
-- For `incident`: `tables get case --scope default --json` returns the hand-curated schema. Copy it, publish to `case-portal`.
+- For `case`: `tables get case --scope default --json` returns the hand-curated schema. Copy it, publish to `case-portal` under the same route name.
 - For `casenotes`: `tables get casenotes --scope default --json` returns the hand-curated schema. Fix `lookupTable: "case"` → `"incident"` (the logical name — portable across scopes). Publish to `case-portal`.
 - Do NOT also publish a generic `annotation` route — `casenotes` is the filtered alias that should be used.
 - Scaffolds frontend.

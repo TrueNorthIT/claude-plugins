@@ -11,14 +11,53 @@ Base: `/api/v2/{scope}/{tier}/…` where `{tier}` is `me`, `team`, `all` or
 
 | Route | Verbs | Notes |
 |---|---|---|
-| `/{table}` | `GET`, `POST` | `POST` on any tier but `me` is a **405** |
+| `/{table}` | `GET`, `POST` | `POST` is `me`-only, **plus** `public` on a table that sets `publicCreate`. `team` and `all` are always a 405 |
 | `/{table}/{id}` | `GET`, `PATCH` | No `DELETE` — the handler does not implement one |
 | `/lookup/{table}?search=` | `GET` | Type-ahead. Returns a trimmed shape for pickers, not full rows |
 | `/aggregate/{table}?aggregate=count&groupBy=` | `GET` | Counts by a grouping field |
 | `/changes/{table}?deltaToken=` | `GET` | Delta query, on routes with change tracking published |
-| `/public/actions/{name}[/{id}]` | `GET`, `POST` | Named actions, where the scope publishes them (the `invoke` permission) |
+| `/public/actions/{name}[/{id}]` | `GET`, `POST` | Custom APIs. The **only** action path there is, for every caller — and not public. See below |
 
-The `public` tier serves list, single record and actions only.
+The `public` tier serves list, single record and actions only — no lookup, no
+aggregate, no changes.
+
+### `public` is read-only, with one opt-in
+
+A table that sets `publicCreate: true` accepts an **unauthenticated**
+`POST /public/{table}`. No token, no contact resolution, no permission check —
+the handler skips the whole auth pipeline for that one case. It is a deliberate
+per-table decision (`public_create` in Terraform, `publicCreate` in a schema
+definition), and it should be set only on tables whose rows anyone on the
+internet may create.
+
+Everywhere else `public` writes are a 405 `Public access is read-only`.
+
+### `/public/actions/` is not public
+
+The path segment says `public` and the routing only accepts it under `public`,
+but the auth requirements have nothing to do with the tier:
+
+| The custom API declares | What a call needs |
+|---|---|
+| nothing (the default) | a valid bearer token, a **resolved Dataverse contact**, and the `invoke` permission |
+| `publicInvoke: true` | nothing |
+
+So a client that expects `/public/actions/…` to work without a token gets a 401
+from the token validator, or a 404 if the token is fine but no contact matches —
+the same contact-resolution failure described in `auth.md`, reached by a path
+that does not look like it should need a contact at all.
+
+The permission is the custom API's own `requiredPermission`, which defaults to
+`{name}:invoke`. It obeys the ordinary tier grammar, so `{name}:invoke:team` and
+`{name}:invoke:all` both satisfy it — see `permissions.md`.
+
+**`GET` invokes a function, `POST` invokes an action**, and the handler checks
+this before anything else. Getting it the wrong way round is a 405 that names
+the right verb:
+
+```
+Custom API "expand-calendar" is a function — use GET, not POST
+```
 
 ### Why there is no delete
 
@@ -44,12 +83,20 @@ A wrong verb comes back as:
 { "error": "Method Not Allowed", "message": "Method not allowed", "statusCode": 405 }
 ```
 
-with `Access-Control-Allow-Methods` naming what the route does accept — read
-that header rather than guessing.
+**Do not read `Access-Control-Allow-Methods` for the answer.** It is set from
+the *handler's* verb list, before the tier or the table is looked at, so a list
+route advertises `GET, POST, OPTIONS` even while refusing the `POST` you just
+sent. It tells you what the handler implements, not what this route will accept.
 
-Two more 405 messages are worth recognising, because they are about the *route*
-rather than the verb: `Public access is read-only`, and `Lake-backed tables are
-read-only` on a route served from the data lake.
+Three more 405s are about the *route* rather than the verb. The first is
+word-for-word the plain wrong-verb message above, so only the tier you called
+tells them apart:
+
+| `message` | Cause |
+|---|---|
+| `Method not allowed` | `POST` to `team` or `all` — create is `me`-only |
+| `Public access is read-only` | `POST` to `public` on a table without `publicCreate` |
+| `Lake-backed tables are read-only` | Any write on a route served from the data lake |
 
 ## Scope-level routes
 

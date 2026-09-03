@@ -118,10 +118,43 @@ A list response carries the next page ready-made:
 }
 ```
 
-**`page.next` is a complete path and query string — follow it verbatim.** Do not
-parse the cursor, do not rebuild the URL from its parts, and do not carry your
-own `orderBy` across: the cursor already encodes the sort, and `next` repeats it
-for you. When `page.next` is `null`, you are on the last page.
+**`page.next` carries only `top`, `cursor` and `orderBy`.** That is the whole
+URL the server builds. Every other parameter you sent on page 1 is dropped:
+
+| In `page.next` | Dropped — you must re-append it |
+|---|---|
+| `top`, `cursor`, `orderBy` | `select`, `filter`, `filterLogic`, `expand`, `created`, `modified` |
+
+So a client that follows `page.next` verbatim gets page 2 of the route's
+**default select, unfiltered** — wider than page 1, differently shaped, and with
+no error to say so. The tier join still applies, so nobody else's rows appear;
+what you get is your own rows that page 1's filter excluded, carrying whatever
+fields the route defaults to. Closed cases reappearing halfway down an "open
+cases" list is the classic sighting.
+
+Take `cursor` and `top` from `next`, keep the `orderBy` it hands back, and
+re-send everything else exactly as you sent it on page 1:
+
+```
+# page 1
+GET /api/v2/default/me/case?select=title,statuscode&filter=statecode%20eq%200
+    &orderBy=createdon:desc&top=20
+
+# page.next says:
+/api/v2/default/me/case?top=20&cursor=<opaque>&orderBy=createdon:desc
+
+# what you must actually request
+GET /api/v2/default/me/case?top=20&cursor=<opaque>&orderBy=createdon:desc
+    &select=title,statuscode
+    &filter=statecode%20eq%200
+```
+
+Never build the `cursor` yourself — it is opaque and wraps the data layer's own
+paging token. When `page.next` is `null`, you are on the last page.
+
+This bites the SDK too: `fetchPage()` and `eachPage()` both follow `page.next`
+as given, so an `eachPage()` loop started with a filter returns a filtered first
+page and unfiltered ones after it. See `sdk.md`.
 
 There is no offset paging. `skip` is accepted as a parameter but a positive
 `skip` without a cursor is a 400:
