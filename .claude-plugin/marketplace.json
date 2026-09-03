@@ -7,9 +7,14 @@
   "description": "Claude Code plugins for building against TrueNorth IT services — the Dataverse Contact API, GOV.UK Design System services, and local model offload.",
   "plugins": [
     {
+      "name": "dataverse-contact-api",
+      "source": "./plugins/dataverse-contact-api",
+      "description": "How the Dataverse Contact API works — the me/team/all/public tiers, the permission grammar, the non-OData query dialect, Entra External ID auth, the SDK, and how to triage a 401/403/404/empty list. The shared reference behind dataverse-portal and dataverse-terraform."
+    },
+    {
       "name": "dataverse-portal",
       "source": "./plugins/dataverse-portal",
-      "description": "Scaffold a React + TypeScript + Tailwind + Auth0 SPA against the Dataverse Contact API, following the patterns from dataverse-example-case-portal."
+      "description": "Scaffold a React + TypeScript + Tailwind SPA that signs citizens in with Microsoft Entra External ID (MSAL) and consumes the Dataverse Contact API, following the patterns from dataverse-example-case-portal."
     },
     {
       "name": "create-gds-service",
