@@ -19,6 +19,28 @@ npm install -g @truenorth-it/contact-admin
 
 All admin operations use this CLI instead of MCP. No MCP registration is needed.
 
+**What the user has to supply, and when.** Most of the configuration is derived
+from the API in step 0 — don't ask for any of it up front:
+
+| | Where it comes from |
+|---|---|
+| API URL | The prompt, or the default |
+| Tenant ID, API app ID, OAuth scope | Auto-derived from `.well-known` in step 0 |
+| **SPA client ID** | **Asked in step 8** — an Entra app registration in their Azure tenant. Nothing on the API side knows it, and this skill cannot create it |
+| Admin credential | Device-code sign-in in step 1 |
+
+Two things are the user's environment, not this skill's job, and both are worth
+naming early because each produces a *working* app that shows nothing:
+
+- **A Dataverse `contact` row whose `emailaddress1` matches the address they
+  sign in with.** Without it they authenticate perfectly and every `/me` route
+  404s. Check with `GET /api/v2/{scope}/me/whoami` — `dataverseContact: null`
+  is the tell.
+- **Rows in the target table that belong to that contact.** An empty table and a
+  broken join look identical from the browser.
+
+If either is missing, say so before scaffolding rather than after.
+
 ## Trigger-time data from the prompt
 
 | Signal | How to detect | How to use |
@@ -42,12 +64,12 @@ For the URL, tier, and project name: state what you assumed in one sentence befo
 
 ## Version check
 
-**Expected plugin version: 0.12.0**
+**Expected plugin version: 0.13.0**
 
 Before doing any work, verify the installed plugin version. Read the plugin manifest at `../../.claude-plugin/plugin.json` (relative to this skill file) using the Read tool:
 
-- If the `version` field matches `0.12.0` — proceed.
-- If the `version` field is **older** — tell the user: "Your dataverse-portal plugin is v`<installed>` but this skill expects v0.12.0. Run `/plugin marketplace update truenorthit` and then `/reload-plugins` to get the latest version." Then stop.
+- If the `version` field matches `0.13.0` — proceed.
+- If the `version` field is **older** — tell the user: "Your dataverse-portal plugin is v`<installed>` but this skill expects v0.13.0. Run `/plugin marketplace update truenorthit` and then `/reload-plugins` to get the latest version." Then stop.
 - If the file cannot be read — warn the user but proceed.
 
 ## Workflow
