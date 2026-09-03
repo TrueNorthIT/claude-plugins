@@ -16,16 +16,24 @@ GET {API_URL}/.well-known/oauth-protected-resource
 
 ```json
 {
+  "resource": "https://api.dataverse-contact.tnapps.co.uk",
+  "authorization_servers": ["https://<tenant>.ciamlogin.com/<tenant>/v2.0"],
+  "bearer_methods_supported": ["header"],
   "idp_provider": "entra-external-id",
   "idp_issuer": "https://<tenant>.ciamlogin.com/<tenant>/v2.0",
-  "idp_audience": "<api-app-guid>"
+  "idp_audience": "<api-app-guid>",
+  "auth0_domain": "…", "auth0_issuer": "…", "auth0_audience": "…"
 }
 ```
 
 Read the `idp_*` fields. They are provider-neutral and are the ones that will
-keep working. The response may also carry `auth0_*` fields — those exist purely
-for backwards compatibility with older clients and should not be used in new
-work.
+keep working. The `auth0_*` fields are still emitted, but purely for
+backwards compatibility with older clients — they carry the same values and
+should not be used in new work. The response is cached for a day.
+
+There is a matching `/.well-known/oauth-protected-resource/_admin` for the admin
+plane, which is a **different audience and a different token**. Do not point a
+citizen-facing client at it.
 
 ## MSAL configuration
 
@@ -68,10 +76,20 @@ The claim is taken in this order, first match wins:
 
 | Order | Claim | Condition |
 |---|---|---|
-| 1 | whatever `OIDC_EMAIL_CLAIM` names | if configured on the deployment |
+| 1 | whatever `{SCOPE}__OIDC_EMAIL_CLAIM` names | if configured for that scope on the deployment |
 | 2 | `email` | |
 | 3 | `preferred_username` | **only if it contains `@`** — CIAM sometimes puts a non-email username here |
 | 4 | `emails[]` | first entry |
+
+The result is lowercased before the comparison, so case in either the token or
+the contact record is irrelevant. A token carrying none of these is a 401:
+
+```
+Token does not contain an email claim. Ensure the identity provider includes
+the email in access tokens.
+```
+
+That is a claims-mapping problem in the app registration, not an API problem.
 
 ### The consequence: a valid token with no contact
 
@@ -80,10 +98,13 @@ If no contact matches, the token still authenticates. You get a session, a
 
 | Route | Result |
 |---|---|
-| `/{scope}/me/...` | **404** — there is no contact to join from |
+| `/{scope}/me/...` | **404** `No Dataverse contact found for your account.` |
 | `/{scope}/team/...` | **404** — same |
 | `/{scope}/all/...` | works — `all` applies no join, so it tolerates a missing contact |
 | `/{scope}/me/whoami` | **200**, with `dataverseContact: null` |
+
+(A `POST` to create is the one place this surfaces as a 401 rather than a 404:
+`Could not resolve contact for authenticated user`. Same cause.)
 
 This is the failure that looks most like a bug and is least like one. The user
 signed in successfully, so the client shows them as logged in, and then every
@@ -101,30 +122,36 @@ curl -s -H "Authorization: Bearer $TOKEN" \
   "$API_URL/api/v2/$SCOPE/me/whoami" | jq
 ```
 
-```json
-{
-  "identity": {
-    "sub": "…",
-    "email": "someone@example.com",
-    "permissions": ["case", "case:team", "case:write", "case:create"]
-  },
-  "dataverseContact": { "contactid": "…", "fullname": "…", "emailaddress1": "…" },
-  "companies": [ { … } ],
-  "hasMultipleCompanies": false
-}
-```
+The full response shape is in `routes.md`. `whoami` is deliberately tolerant —
+it is a diagnostic, so it answers 200 wherever it possibly can:
 
-`whoami` is deliberately tolerant — it is a diagnostic, so it answers 200
-wherever it possibly can. A 401 here means the token itself is bad (wrong
-audience, wrong issuer, expired, malformed). A 200 with `dataverseContact:
-null` means the token is fine and the contact lookup failed. Those are entirely
-different fixes.
+| Result | Means |
+|---|---|
+| `401 Missing or malformed Authorization header` | No `Bearer` token reached the API |
+| `401 Token has expired` / `Invalid token` / `Token validation failed: …` | The token itself is wrong — audience, issuer, signature, or expiry |
+| `200` with `dataverseContact: null` | The token is fine; no contact matched the email |
+| `200` with a contact | Auth is not your problem. Read `identity.permissions` next |
+
+A 401 and a 200-with-null are entirely different fixes: one is app registration,
+the other is data.
 
 ## Multiple companies
 
 A contact can be associated with more than one company; `hasMultipleCompanies`
 tells you whether the UI needs a company switcher. The active company changes
-what `team` returns. In the SDK this is `withCompany()` — see `sdk.md`.
+what `team` returns, and is selected with the `X-Company-Id` request header. In
+the SDK this is `withCompany()` — see `sdk.md`.
+
+When `team` cannot work out which company applies, the 404 says so explicitly:
+
+```
+No company account is available for team access. In the parent-account model
+your contact must belong to an account (parentcustomerid); in the
+associated-accounts model you must select a linked company (X-Company-Id).
+```
+
+That message names both models and tells you which input is missing — read it
+rather than assuming the permission is wrong.
 
 ## The public tier needs no token at all
 

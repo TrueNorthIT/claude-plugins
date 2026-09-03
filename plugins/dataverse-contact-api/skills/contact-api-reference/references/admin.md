@@ -10,9 +10,20 @@ The admin middleware accepts three things, tried in this order:
 
 | Order | Credential | Notes |
 |---|---|---|
-| 1 | `ADMIN_CONNECTION_KEY` | A pre-shared key, compared in constant time. One key administers **every** scope on the deployment — treat it as a deployment-wide secret |
-| 2 | An MCP key | HMAC-signed, carries an identity |
-| 3 | A workforce Entra token | Validated against the caller's **Dataverse security roles** — System Customizer or System Administrator |
+| 1 | `ADMIN_CONNECTION_KEY` | A pre-shared key, compared in constant time. It **short-circuits the role check entirely** — no Dataverse lookup happens. One key administers *every* scope on the deployment, so treat it as a deployment-wide secret |
+| 2 | An MCP key | HMAC-signed and scope-bound. Role checks are deferred to the individual tool |
+| 3 | A workforce Entra token | Validated, then matched to a `systemuser` and checked against that user's **Dataverse security roles** |
+
+For the third, the qualifying roles are:
+
+| Needed for | Roles |
+|---|---|
+| `admin:{scope}` — table management, defaults | System Customizer **or** System Administrator |
+| Scope management itself | System Administrator only |
+
+The role lookup is cached for 5 minutes and **fails closed** — if Dataverse
+cannot be reached, the caller gets no roles rather than their last known ones.
+A 403 immediately after granting someone a role is usually just that cache.
 
 Because all three arrive as an ordinary `Authorization: Bearer …` header, option
 3 works with a token you already know how to get:
@@ -35,15 +46,30 @@ different tooling**: the Terraform provider uses the connection key only; the
 GET /api/v2/_admin/{scope}/table-manager/defaults
 ```
 
-Returns `{ "defaults": …, "effective": … }`. `defaults` is what is published;
-`effective` is what the API will apply after resolution. When they differ,
-`effective` is the truth — start there when a grant is not behaving.
+Returns `{ "scope": …, "defaults": …, "effective": … }`. `defaults` is the
+stored blob; `effective` is the deployment's filesystem baseline merged with it,
+overlay winning per route. **When they differ, `effective` is what the API
+applies** — start there when a grant is not behaving.
+
+`PUT` to the same path replaces the stored defaults, with a body shaped like:
+
+```json
+{ "permissions": { "servicebooking": ["me", "create"] } }
+```
+
+It needs blob storage configured on the deployment; without it you get a 503
+saying so. Prefer Terraform for this — a hand-edited `PUT` leaves no record of
+what changed or why.
 
 Listing the scopes needs nothing at all:
 
 ```bash
 curl -s "$API_URL/api/v2/_admin/scopes"
 ```
+
+It returns `{ scopes, scopeAuth }`, where each `scopeAuth` entry gives the
+authority and API scope a client should use for that scope — the fastest way to
+find out how to sign in to a deployment you have just been handed.
 
 ## The CLI
 
