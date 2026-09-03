@@ -14,7 +14,7 @@ may do. All of that lives inside the API.
 | Part | Values | Default if omitted |
 |---|---|---|
 | `subject` | the route name — `case`, `contact`, `casenotes`, … | required |
-| `operation` | `write`, `create`, `lookup`, `invoke` — omitted means *read* | read |
+| `operation` | exactly `write`, `create`, `lookup` or `invoke` — omitted means *read* | read |
 | `tier` | `me`, `team`, `all` | `me` |
 
 So:
@@ -31,8 +31,16 @@ So:
 
 A bare `case:write` is **tier `me`**, not "write anywhere". This trips people up
 because the tier is the *last* segment, so the two-segment form looks like it
-might be `subject:tier`. It is not — a two-segment string is always
-`subject:operation`.
+might be `subject:tier`. In fact the parser checks both: in `a:b`, if `b` is
+`team` or `all` it is a tier, and if `b` is one of the four known operations it
+is an operation.
+
+**If it is neither, the whole string becomes the subject.** `case:notes` parses
+as a subject literally named `case:notes`, read at `me` — no error, and it will
+never match anything. A typo in an operation therefore fails silently rather
+than loudly: `case:wirte` grants read on a route that does not exist. When a
+grant appears to do nothing at all, check the spelling of the operation before
+anything else.
 
 ## What implies what — `permImplies`
 
@@ -81,10 +89,16 @@ Two **additive** layers, resolved per request and unioned:
 | 1 | the scope's published `defaults.json` | every authenticated caller in the scope |
 | 2 | `cr_apipermission` rows in Dataverse, keyed to the caller's contact | that one person |
 
-Layer 2 is optional and **fails open to layer 1** — if the per-user lookup
-errors, the caller keeps their defaults rather than losing everything. There is
-no subtraction: a `cr_apipermission` row can only widen, never revoke. To take
-something away you must change the defaults.
+Layer 2 is optional and **fails open to layer 1** — if the `cr_apipermission`
+table is not installed, or the lookup errors, the caller keeps their defaults
+rather than losing everything. There is no subtraction: a `cr_apipermission`
+row can only widen, never revoke. To take something away you must change the
+defaults.
+
+Each row carries one permission string in `cr_permission`, scoped by
+`cr_scope` and linked to the contact by `cr_contact`. **Only active rows count**
+— the lookup filters `statecode eq 0`, so deactivating a row revokes the grant
+without deleting it. That is the clean way to withdraw an individual grant.
 
 ### The 5-minute cache
 
@@ -108,19 +122,31 @@ arrival, and it looks nothing like a configuration problem: the token is valid,
 the tables are published, `schema` returns them, and every call still 403s.
 Check the published defaults first.
 
+The design is deliberate — defaults are purely additive, so a missing or
+unreadable `defaults.json` means "no free permissions" rather than an error.
+Nothing anywhere logs a complaint. The only routes still answering are the
+`public` tier ones, which need no permission at all.
+
 In Terraform terms this is the `dataversecontact_permissions_sync` resource
 never having been applied — see the `dataverse-terraform` plugin.
 
 ## Reading a 403
 
-| Body | Means |
+| Body `message` | Means |
 |---|---|
 | `Missing required permission: case` | You have no read on `case` at any tier — or the scope has no published defaults at all |
 | `Missing required permission: case:write:team` | You hold `case:write` but asked at the `team` tier |
-| `Missing required permission: admin:{scope}` | An `_admin` route with a non-admin credential |
+| `No permissions for table 'case'. Requires any permission for this table.` | The `choices` route on a table whose choices are not published openly |
+| `Field 'customerid': the referenced account does not belong to you` | Not a permission at all — you tried to point a lookup at a row outside your own scope on a write |
+| `Not authorized to administer scope 'X'. Requires a Dataverse role of System Customizer or System Administrator…` | An `_admin` route with a valid but non-admin workforce token |
 
-A 403 is always about the *permission list*. A 404 is about the *join* — the row
-exists but does not reach you. Do not fix one by changing the other.
+A 403 is normally about the *permission list*. A 404 is about the *join* — the
+row exists but does not reach you, or the route does not serve that tier at all.
+Do not fix one by changing the other.
+
+The lookup-ownership 403 is the exception worth knowing: it fires on a write
+whose payload references a row you cannot see. Widening the *write* permission
+will not clear it; the referenced row is the problem.
 
 ## Checking what a caller actually holds
 

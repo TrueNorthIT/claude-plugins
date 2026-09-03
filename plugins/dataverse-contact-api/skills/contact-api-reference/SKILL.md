@@ -41,6 +41,11 @@ row you "own" in Dataverse is invisible at `me` if the join path does not reach
 it, and a row you have never touched is visible if it does. When a `me` list
 comes back empty, the join path is the first thing to check — not the data.
 
+A route only serves `me` if it declares a contact join path, and `team` only if
+it declares a team join path. Asking for a tier the route does not support is a
+**404** naming the tier that will work — a configuration fact, not a permission
+problem.
+
 ## The verb matrix
 
 What is *absent* here matters as much as what is present:
@@ -58,7 +63,7 @@ What is *absent* here matters as much as what is present:
 | `GET` | `/{scope}/schema[?table=]`, `/{scope}/openapi.json` | none |
 | `GET` | `/{scope}/choices/{table}[/{field}]` | any permission on that subject |
 | `GET` | `/api/v2/_admin/scopes` | none — and note `_admin` comes **before** the scope |
-| `GET` | `/api/v2/_admin/{scope}/table-manager/defaults` | `admin:{scope}` |
+| `GET` | `/api/v2/_admin/{scope}/table-manager/defaults` | `admin:{scope}` — returns `{scope, defaults, effective}` |
 
 **There is no `DELETE` anywhere on the data tier.** Record routes allow `GET`
 and `PATCH` only; list routes allow `GET` and `POST` only. Deactivating a row is
@@ -89,8 +94,9 @@ you write a line of client code.
    only, and only within the same operation. Write never implies read.
    → `references/permissions.md`
 2. **The query dialect is not OData.** No `$` prefix, `filter` is
-   space-separated `field operator value`, and `skip` is rejected outright —
-   paging is cursor-based via `page.next`. → `references/querying.md`
+   space-separated `field operator value`, and there is no offset paging — a
+   `skip` without a cursor is a 400 telling you to follow `page.next`.
+   → `references/querying.md`
 3. **The caller is matched to a contact by the lowercased `email` claim**, not
    `oid` and not `sub`. No matching contact means the token is fine and `/me`
    still 404s. → `references/auth.md`

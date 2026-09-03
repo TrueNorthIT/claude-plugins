@@ -27,18 +27,26 @@ below are indistinguishable from each other at the call site and obvious in
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `401` on everything | Token rejected — wrong audience, wrong issuer, expired, or an ID token sent instead of an access token | Compare the token's `aud`/`iss` with `idp_audience`/`idp_issuer` from `/.well-known/oauth-protected-resource` |
+| `401 Missing or malformed Authorization header` | No `Bearer` prefix, or no header at all | Check the client is attaching the token, not just acquiring it |
+| `401 Token has expired` / `Invalid token` / `Token validation failed: …` | Wrong audience, wrong issuer, or an **ID token sent instead of an access token** | Compare the token's `aud`/`iss` with `idp_audience`/`idp_issuer` from `/.well-known/oauth-protected-resource` |
+| `401 Token does not contain an email claim` | The IdP is not emitting `email` in access tokens | Fix claims mapping on the app registration, or set the scope's `OIDC_EMAIL_CLAIM` |
 | `403 Missing required permission: <route>` on **every** route including reads | The scope has **no published `defaults.json`** | Publish defaults. In Terraform, apply `permissions_sync` |
 | `403 Missing required permission: <subj>:write:team` | You hold `<subj>:write`, which is tier `me` and never implies `team` | Grant `<subj>:write:team` explicitly — see `permissions.md` |
 | `403` that persists after a grant | The 5-minute permission cache | Wait it out. Confirm with `whoami`, which shows the resolved list |
-| `404` on `/me/*` and `/team/*`, but `/all/*` works | Authenticated with no matching Dataverse contact | Check `contact.emailaddress1` against the sign-in email — see `auth.md` |
+| A grant that appears to do nothing at all | A misspelled operation — an unknown one is absorbed into the subject silently | Check it against `write` / `create` / `lookup` / `invoke` |
+| `404 No Dataverse contact found for your account.` on `/me/*` and `/team/*`, while `/all/*` works | Authenticated with no matching Dataverse contact | Check `contact.emailaddress1` against the sign-in email — see `auth.md` |
+| `404 Table "X" does not support /me access. Use /all/X instead.` | The route declares no contact join path | A configuration fact, not a permission. No grant will change it |
+| `404 No company account is available for team access…` | No account on the contact, or no `X-Company-Id` selected | The message names both models; supply whichever input is missing |
 | `404` on one `{id}` that you know exists | The row exists but the join does not reach you at that tier | Try the same id at `team`, then `all`. If `all` finds it, it is a join question, not a data question |
-| `400 Use the cursor from 'page.next'` | A `skip` parameter | Follow `page.next` verbatim; there is no offset paging |
-| `400` with a "did you mean" hint | A misspelled field in `select` / `filter` / `orderBy` / `expand` | Take the suggestion, or list the real fields with `/{scope}/schema?table={table}` |
-| `405` on a create | `POST` to a tier other than `me` | `POST /me/{table}` is the only create route |
+| `400 Invalid pagination state. Use the cursor from 'page.next'…` | A `skip` without a cursor | Follow `page.next` verbatim; there is no offset paging |
+| `400 Cannot filter by unknown field …` | A misspelled field in `select` / `filter` / `orderBy` / `expand` | Take the "did you mean" suggestion, or list the real fields with `/{scope}/schema?table={table}` |
+| `400 Operator 'contains' is not valid for choice field …` | Wrong operator for the field's type | The message names the allowed set |
+| `405 Method not allowed` on a create | `POST` to a tier other than `me` | `POST /me/{table}` is the only create route. `Access-Control-Allow-Methods` lists what the route does take |
+| `405 Public access is read-only` / `Lake-backed tables are read-only` | A write against the `public` tier, or a lake-served route | Neither is fixable from the client |
 | Sign-in fails at the Microsoft page, never reaches the app | `AADSTS50011` — redirect URI mismatch, usually a trailing slash | Make the app registration and the client config byte-identical. No trailing slash |
 | A list returns `200` and **zero rows**, no error | The join path does not reach any rows | See below — this is its own diagnosis |
-| A stale value after an update | Check `X-Cache` on the response | A `HIT` is the explanation |
+| Only 100 rows come back when you asked for 500 | `top` is clamped to 100 silently, not rejected | Page with `page.next` |
+| `_label` fields missing | `X-Data-Source: lake` — lake-backed routes get no label enrichment | Read the raw value, or serve the route from live Dataverse |
 
 ## The empty list: two very different failures
 
@@ -79,9 +87,10 @@ in place.
 
 | Header | Read it when |
 |---|---|
-| `X-Cache: HIT\|MISS` | A response looks stale |
-| `X-Data-Source: lake` | Data is behind live Dataverse |
-| `X-Deprecated-Field` | Any time — it is free warning of a future break |
+| `x-correlation-id` | **Always.** Present on every response; it is what support needs to find your request in the logs |
+| `X-Cache: HIT\|MISS` | A response looks stale. Note this header only appears when the response cache is enabled, which it is **not** by default — its absence is not evidence of a cache miss |
+| `X-Data-Source: lake` | Data is behind live Dataverse, or `_label` fields are missing |
+| `X-Deprecated-Field` | Any time — free warning of a future break, in `old=>new` form |
 
 ## Probing a deployment
 
