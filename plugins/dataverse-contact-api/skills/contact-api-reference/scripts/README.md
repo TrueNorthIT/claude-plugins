@@ -117,6 +117,27 @@ lists scope names and authorities, no secrets — so a 200 there proves nothing
 on its own, and the script confirms the key against
 `/api/v2/_admin/{scope}/table-definitions`, which always enforces it.
 
+**Where to get it.** It is an app setting on the API's App Service, so with
+Azure rights you can read it rather than being told it:
+
+```powershell
+az webapp config appsettings list --name <app> --resource-group <rg> `
+  --query "[?name=='ADMIN_CONNECTION_KEY'].value" -o tsv
+```
+
+Empty output means the deployment never had one. That is a **normal state**, not
+a mistake — the deploy-time variable defaults to `""`, which omits the setting
+entirely. A workforce Entra token works in its place, because the admin plane
+accepts any of the three as a bearer token and nothing inspects which it holds:
+
+```powershell
+az account get-access-token --resource <dataverse-url> --query accessToken -o tsv
+```
+
+That needs **System Customizer** or **System Administrator** on the Dataverse
+environment, and lasts about an hour — fine for an apply, useless for CI, which
+is what the pre-shared key is for.
+
 **When it fails.** The key must be **byte-identical** to `ADMIN_CONNECTION_KEY`
 on the API deployment. A trailing newline from a copy-paste or a stray space is
 enough for a 401. Copy it again rather than retyping it; the script strips

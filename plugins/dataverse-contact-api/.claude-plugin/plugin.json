@@ -1,7 +1,7 @@
 {
   "name": "dataverse-contact-api",
   "description": "How the Dataverse Contact API actually works — URL shape, the me/team/all/public tiers, the permission grammar, the non-OData query dialect, Entra External ID auth, the @truenorth-it/dataverse-client SDK, and how to triage a 401/403/404/empty list. Use when writing or debugging any client against the Contact API. The shared factual reference behind dataverse-portal and dataverse-terraform.",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "author": {
     "name": "TrueNorth IT",
     "email": "hello@truenorthit.co.uk"
