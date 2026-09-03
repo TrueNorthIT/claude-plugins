@@ -33,6 +33,21 @@ TOKEN=$(az account get-access-token --resource "$DATAVERSE_URL" --query accessTo
 curl -s -H "Authorization: Bearer $TOKEN" "$API_URL/api/v2/_admin/$SCOPE/table-manager/defaults"
 ```
 
+**Check which subscription you are on before minting it.** The token is issued
+for whatever `az` currently points at, and a token for the wrong tenant fails as
+a `401` that is indistinguishable from a bad key:
+
+```bash
+az account show --output table                 # where am I?
+az account list --output table                 # what else can I see?
+az account set --subscription "<name-or-id>"   # move
+```
+
+A subscription missing from that list means you are signed in to the wrong
+tenant, not that you lack access — `az login` authenticates one tenant at a
+time. `az login --tenant <tenant-id>` and look again; accounts accumulate, so
+`az account set` moves between them afterwards without a fresh login.
+
 That is the way in on a deployment where no pre-shared key is configured, or
 where you would rather not handle one.
 
