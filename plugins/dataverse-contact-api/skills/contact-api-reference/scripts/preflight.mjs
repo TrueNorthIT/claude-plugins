@@ -686,7 +686,11 @@ function terraformEnv({ apiUrl, key, scope }) {
     "",
     "# Must be byte-identical to ADMIN_CONNECTION_KEY on the API deployment — a",
     "# trailing newline or a stray space is enough to make every admin call 401.",
-    `DATAVERSE_CONTACT_CONNECTION_KEY=${key}`,
+    // `key` is optional all the way to here: the interactive prompt accepts an
+    // empty answer, for the deployment that legitimately has no pre-shared key.
+    // Interpolating it raw wrote the literal string "undefined", which run.sh
+    // then exported over whatever real credential was in the environment.
+    `DATAVERSE_CONTACT_CONNECTION_KEY=${key ?? ""}`,
     "",
     `SCOPE=${scope}`,
     "",
@@ -1130,6 +1134,13 @@ if (missingDirs.length) {
 
 for (const p of [terraformEnvPath, appEnvPath]) {
   mkdirSync(join(p, ".."), { recursive: true });
+}
+
+if (!key) {
+  warn("Writing terraform/.env with an empty connection key.");
+  info("Terraform will need a credential from somewhere. Either fill the key in");
+  info("by hand, or export a workforce Entra token as TF_VAR_connection_key —");
+  info("run.sh leaves an exported token alone when the file's key is blank.");
 }
 
 writeFileSync(terraformEnvPath, terraformEnv({ apiUrl, key, scope }), "utf8");
