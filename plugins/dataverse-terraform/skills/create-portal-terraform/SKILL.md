@@ -147,18 +147,66 @@ node scripts/export-scope.mjs --scope <scope> --new --out <dir>
 Writes the same repo shape around a starter `main.tf` containing a working
 `contact` route and a `permissions_sync` block. No API call, no key needed.
 
-### B2. Discover the Dataverse tables
+### B2. Discover the schema — never write a field name from memory
 
-For each table the portal needs, get the real column names and types — never
-guess them:
+Column names, types, join paths and create-defaults all come off the live
+deployment. A guessed field name produces HCL that plans cleanly and then 400s;
+a guessed join path produces something worse — a `200` with an empty list,
+which looks like missing data rather than a wrong config.
+
+Take the first of these that applies.
+
+**1. The API already serves this table as a built-in route.** The best case, and
+it covers `contact`, `case`, `account` and the rest of the default scope. One
+GET returns the whole shape, and it needs **no credentials at all**:
 
 ```bash
+curl -s "$DATAVERSE_CONTACT_API_URL/api/v2/default/schema?table=case"
+```
+
+You get `primaryKey`, `dataverseLogicalName`, `filters`, `defaultFields`,
+`createDefaults`, and `fields[]` with each column's `type`, `readOnly` and
+`isDefault` — plus the part that earns the call on its own:
+
+| In the response | Maps to |
+|---|---|
+| `contactScope.joinPath` | `contact_join_step` |
+| `contactScope.alternateJoinPaths` | `alternate_contact_join_path` |
+| `teamScope.joinPath` | `team_join_step` |
+| `createDefaults[]` | one `create_default` block each |
+
+Those are the security boundary. Copy them; do not re-derive them, and do not
+reason about which lookup "should" be the right one when the deployment will
+tell you.
+
+**2. The table is published on some scope already.** Same document, any scope:
+
+```bash
+curl -s "$DATAVERSE_CONTACT_API_URL/api/v2/<scope>/schema?table=<route>"
+```
+
+**3. Neither — the API has never served this table.** Only now fall back to
+Dataverse metadata. This one needs the `contact-admin` CLI and a **workforce
+Entra login**, which is a different credential from the Terraform connection
+key, so it is not available to everyone who can otherwise do this work:
+
+```bash
+npm install -g @truenorth-it/contact-admin
 contact-admin discover entity <logicalName> --url "$API_URL" --scope "$SCOPE" --json
 contact-admin discover children <parentLogicalName> --url "$API_URL" --scope "$SCOPE" --json
 ```
 
-(`npm install -g @truenorth-it/contact-admin` if it isn't installed. The CLI
-authenticates with workforce Entra, separately from the Terraform key.)
+Say which of the three you used. "I read it off the deployment" and "I recalled
+it" are very different claims about a join path, and only one of them is
+checkable.
+
+> **A built-in's field list is not a template to copy wholesale.** Built-in
+> routes are served from the API's own filesystem config, which may declare
+> things the provider path cannot. `case` lists the polymorphic navigation
+> properties `customerid` and `ownerid`; put either in `fields` and the apply
+> fails with a state-consistency error about a dropped field. Its `defaultFields`
+> is tuned for its own UI too, and omits `description`. Take the join paths and
+> the create-defaults verbatim — filter the field list.
 
 ### B3. Write one resource per route
 
@@ -243,8 +291,10 @@ than saying you're unsure.
 
 ## Editing an existing Terraform repo
 
-Adding a route to a repo that already exists is the common follow-up. Three
-things must stay in step, and forgetting the third is the usual bug:
+Adding a route to a repo that already exists is the common follow-up. Discover
+the new table's schema first (step B2) — the surrounding config being correct is
+no evidence at all about a table it has never described. Then three things must
+stay in step, and forgetting the third is the usual bug:
 
 1. the new `dataversecontact_table` resource,
 2. its entry in `default_permissions` (unless it uses `permission_group` or is
