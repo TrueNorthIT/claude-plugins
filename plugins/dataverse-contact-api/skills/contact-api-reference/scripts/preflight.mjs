@@ -805,6 +805,26 @@ let scopeAuth = [];
 
 if (!key) {
   skip("No connection key supplied — key and scope checks not run.");
+  // "I definitely set it" is the usual reply here, and it is usually true —
+  // of something this process cannot see. Both causes look identical from
+  // inside node, so name them rather than restating that the value is missing.
+  info("If you are sure you set it, two different causes land here looking");
+  info("identical, and neither is visible from inside this process.");
+  info("");
+  info("In PowerShell it has to be $env:DATAVERSE_CONTACT_CONNECTION_KEY. A plain");
+  info("$DATAVERSE_CONTACT_CONNECTION_KEY is a session variable that child");
+  info("processes never see. Assigning an empty string removes it outright, so");
+  info("an `az` lookup that returned nothing leaves you here having apparently");
+  info("done nothing at all.");
+  info("");
+  info("Which is the other cause. Check it directly:");
+  info("");
+  info("  az webapp config appsettings list --name <app> --resource-group <rg> \\");
+  info("    --query \"[?name=='ADMIN_CONNECTION_KEY'].value\" -o tsv");
+  info("");
+  info("Empty output means the deployment never had one. That is a normal state,");
+  info("not a mistake — use a workforce Entra token instead, as PREREQUISITES.md");
+  info("section B describes.");
 } else {
   info(`Using key ${maskKey(key)}${keyFromEnv ? " (from DATAVERSE_CONTACT_CONNECTION_KEY)" : ""}`);
   const scopesRes = await getJson(`${apiUrl}/api/v2/_admin/scopes`, {
