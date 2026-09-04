@@ -19,7 +19,7 @@
  * Usage:
  *   node preflight.mjs [--url <api>] [--key <key>] [--scope <name>]
  *                      [--spa-client-id <guid>] [--out <dir>]
- *                      [--check] [--force] [--yes]
+ *                      [--check] [--force] [--yes] [--no-color] [--ascii]
  *
  * --check runs every check and writes nothing — the "am I ready?" mode.
  * --force is required to overwrite a .env that already exists.
@@ -70,12 +70,185 @@ function str(v) {
   return typeof v === "string" && v.trim() !== "" ? v.trim() : undefined;
 }
 
-function die(msg) {
-  console.error(`\nERROR: ${msg}`);
-  process.exit(1);
+const args = parseArgs(process.argv.slice(2));
+
+/* ── terminal ─────────────────────────────────────────────────────────────
+ *
+ * Zero npm dependencies is a hard constraint — this file is fetched raw and
+ * run on its own — so the colour, the glyphs and the spinner are hand-rolled.
+ * Each one degrades rather than corrupting the output:
+ *
+ *   NO_COLOR, --no-color, a pipe, TERM=dumb  ->  no escape codes at all
+ *   a terminal reporting 4- or 8-bit colour  ->  the nearest palette entry
+ *   a console with no UTF-8 font (--ascii)   ->  ASCII glyphs
+ *   no TTY                                   ->  no spinner, no cursor moves
+ *
+ * So `node preflight.mjs --check | tee run.log` and a CI job both produce
+ * something readable, while an interactive run gets the whole treatment.
+ */
+
+const OUT = process.stdout;
+
+// 1 = monochrome, 4 = 16 colours, 8 = 256, 24 = truecolor.
+const DEPTH = (() => {
+  if (args["no-color"] === true || process.env.NO_COLOR !== undefined) return 1;
+  const forced = process.env.FORCE_COLOR;
+  if (forced !== undefined) {
+    if (forced === "0" || forced === "false") return 1;
+    if (forced === "2") return 8;
+    if (forced === "3") return 24;
+    return 4;
+  }
+  if (!OUT.isTTY) return 1;
+  if (process.env.TERM === "dumb") return 1;
+  if (/^(truecolor|24bit)$/i.test(process.env.COLORTERM ?? "")) return 24;
+  if (process.env.WT_SESSION) return 24; // Windows Terminal
+  return typeof OUT.getColorDepth === "function" ? OUT.getColorDepth() : 4;
+})();
+
+// Box-drawing and braille are safe nearly everywhere now, but legacy Windows
+// conhost with a raster font renders them as mojibake, and mojibake is worse
+// than plain. WT_SESSION / TERM_PROGRAM / ConEmuANSI are the reliable tells.
+const UNI = (() => {
+  if (args.ascii === true) return false;
+  if (process.platform === "win32") {
+    return Boolean(
+      process.env.WT_SESSION ||
+        process.env.TERM_PROGRAM ||
+        process.env.TERM ||
+        process.env.ConEmuANSI === "ON",
+    );
+  }
+  return process.env.TERM !== "linux";
+})();
+
+const G = UNI
+  ? { ok: "✔", fail: "✖", warn: "▲", skip: "○", rail: "│", tab: "▌", rule: "─", dot: "◆" }
+  : { ok: "+", fail: "x", warn: "!", skip: "o", rail: "|", tab: "|", rule: "-", dot: "*" };
+
+const FRAMES = UNI ? ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] : ["-", "\\", "|", "/"];
+
+// Each entry carries its own downgrade rather than computing one, so the
+// 16-colour rendering is a deliberate choice and not wherever nearest-cube
+// arithmetic happened to land.
+const PALETTE = {
+  ok: { rgb: [74, 222, 128], x256: 114, x16: 32 },
+  fail: { rgb: [248, 113, 113], x256: 210, x16: 31 },
+  warn: { rgb: [251, 191, 36], x256: 221, x16: 33 },
+  skip: { rgb: [148, 163, 184], x256: 246, x16: 90 },
+  value: { rgb: [45, 212, 244], x256: 81, x16: 36 },
+  muted: { rgb: [125, 137, 156], x256: 245, x16: 90 },
+  rail: { rgb: [71, 85, 105], x256: 240, x16: 90 },
+  title: { rgb: [232, 237, 245], x256: 254, x16: 37 },
+  brandA: { rgb: [232, 74, 234], x256: 170, x16: 35 },
+  brandB: { rgb: [56, 189, 248], x256: 75, x16: 36 },
+};
+
+const RESET = DEPTH > 1 ? "\x1b[0m" : "";
+const BOLD = DEPTH > 1 ? "\x1b[1m" : "";
+
+function ink(name) {
+  if (DEPTH <= 1) return "";
+  const p = PALETTE[name];
+  if (!p) return "";
+  if (DEPTH >= 24) return `\x1b[38;2;${p.rgb[0]};${p.rgb[1]};${p.rgb[2]}m`;
+  if (DEPTH >= 8) return `\x1b[38;5;${p.x256}m`;
+  return `\x1b[${p.x16}m`;
 }
 
-const args = parseArgs(process.argv.slice(2));
+const c = (name, s) => (DEPTH <= 1 ? String(s) : `${ink(name)}${s}${RESET}`);
+const bold = (s) => (DEPTH <= 1 ? String(s) : `${BOLD}${s}${RESET}`);
+const boldc = (name, s) => (DEPTH <= 1 ? String(s) : `${BOLD}${ink(name)}${s}${RESET}`);
+
+function badge(text, name) {
+  if (DEPTH <= 1) return `[${text}]`;
+  const p = PALETTE[name];
+  const bg =
+    DEPTH >= 24
+      ? `\x1b[48;2;${p.rgb[0]};${p.rgb[1]};${p.rgb[2]}m`
+      : DEPTH >= 8
+        ? `\x1b[48;5;${p.x256}m`
+        : `\x1b[${p.x16 + 10}m`;
+  return `${bg}\x1b[30m${BOLD} ${text} ${RESET}`;
+}
+
+function gradient(text) {
+  if (DEPTH < 24) return bold(c("brandB", text));
+  const from = PALETTE.brandA.rgb;
+  const to = PALETTE.brandB.rgb;
+  const chars = [...text];
+  const last = Math.max(1, chars.length - 1);
+  let out = BOLD;
+  chars.forEach((ch, i) => {
+    const [r, g, b] = from.map((v, k) => Math.round(v + (to[k] - v) * (i / last)));
+    out += `\x1b[38;2;${r};${g};${b}m${ch}`;
+  });
+  return out + RESET;
+}
+
+const WIDTH = Math.max(56, Math.min(96, OUT.columns || 80));
+
+// Pick the load-bearing tokens out of a sentence — URLs, GUIDs, quoted names,
+// SCREAMING_ENV_VARS, status codes — so no call site has to mark them up.
+// Each token restores the surrounding colour rather than resetting, or one
+// highlighted URL would bleach the rest of a dim line.
+const TOKEN =
+  /(https?:\/\/[^\s,;)"'`]+|api:\/\/[^\s,;)"'`]+|\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b|`[^`]+`|"[^"]*"|\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b|\b[1-5]\d{2}\b)/g;
+
+function lit(text, base) {
+  if (DEPTH <= 1) return String(text);
+  return String(text).replace(TOKEN, (m) => `${ink("value")}${m}${RESET}${base}`);
+}
+
+function ms(n) {
+  return n < 1000 ? `${Math.round(n)}ms` : `${(n / 1000).toFixed(1)}s`;
+}
+
+/* ── spinner ─────────────────────────────────────────────────────────── */
+
+let spinTimer = null;
+let cursorHidden = false;
+
+function showCursor() {
+  if (cursorHidden) {
+    OUT.write("\x1b[?25h");
+    cursorHidden = false;
+  }
+}
+
+// A spinner left running past an exit leaves the cursor hidden in the user's
+// shell — including on Ctrl-C, which readSecretRaw turns into exit(130).
+process.on("exit", () => {
+  if (spinTimer) clearInterval(spinTimer);
+  if (OUT.isTTY) OUT.write("\r\x1b[2K");
+  showCursor();
+});
+
+function startSpinner(label) {
+  if (!OUT.isTTY) return () => {};
+  let i = 0;
+  OUT.write("\x1b[?25l");
+  cursorHidden = true;
+  const draw = () => {
+    const frame = FRAMES[i++ % FRAMES.length];
+    OUT.write(`\r\x1b[2K  ${c("value", frame)} ${c("muted", label)}`);
+  };
+  draw();
+  spinTimer = setInterval(draw, 80);
+  spinTimer.unref?.();
+  return () => {
+    if (spinTimer) clearInterval(spinTimer);
+    spinTimer = null;
+    OUT.write("\r\x1b[2K");
+    showCursor();
+  };
+}
+
+function die(msg) {
+  const base = ink("fail");
+  process.stderr.write(`\n  ${c("fail", G.fail)} ${base}${lit(msg, base)}${RESET}\n\n`);
+  process.exit(1);
+}
 
 if (args.help || args.h) {
   console.log(
@@ -94,6 +267,8 @@ if (args.help || args.h) {
       "  --check           Run every check, write nothing.",
       "  --force           Overwrite an existing .env.",
       "  --yes             Never prompt; fail if a required value is missing.",
+      "  --no-color        Plain output, no ANSI colour. Same as NO_COLOR=1.",
+      "  --ascii           ASCII glyphs instead of box-drawing and braille.",
       "",
     ].join("\n"),
   );
@@ -113,22 +288,85 @@ const outDir = resolve(str(args.out) ?? ".");
 
 let failures = 0;
 let skipped = 0;
+let passes = 0;
+const startedAt = performance.now();
 
-const ok = (msg) => console.log(`OK   ${msg}`);
-const info = (msg) => console.log(`     ${msg}`);
-const warn = (msg) => console.log(`WARN ${msg}`);
+// One status glyph per line, always in the same column, so scanning the left
+// edge reads as the result and nothing else. `meta` is right-aligned trivia —
+// a timing — and is the first thing to go when the terminal is narrow.
+function line(glyph, glyphColour, msg, msgColour = "title", meta = "") {
+  const base = ink(msgColour);
+  let tail = "";
+  if (meta) {
+    const gap = WIDTH - (4 + String(msg).length + meta.length);
+    tail = `${" ".repeat(Math.max(2, gap))}${c("rail", meta)}`;
+  }
+  OUT.write(`  ${c(glyphColour, glyph)} ${base}${lit(msg, base)}${RESET}${tail}\n`);
+}
+
+const ok = (msg, meta) => {
+  passes++;
+  line(G.ok, "ok", msg, "title", meta);
+};
+const warn = (msg, meta) => line(G.warn, "warn", msg, "title", meta);
 const skip = (msg) => {
   skipped++;
-  console.log(`SKIP ${msg}`);
+  line(G.skip, "skip", msg, "muted");
 };
-const fail = (msg) => {
+const fail = (msg, meta) => {
   failures++;
-  console.log(`FAIL ${msg}`);
+  line(G.fail, "fail", msg, "title", meta);
 };
 
+// Guidance hangs off a rail instead of sitting in the status column, so a
+// paragraph of explanation never reads as another check. A line the caller
+// indented is a command to copy, and gets the value colour rather than the
+// muted one — its indentation is kept, because these come in nested blocks.
+function info(msg) {
+  const text = String(msg ?? "");
+  if (!text.trim()) {
+    OUT.write(`  ${c("rail", G.rail)}\n`);
+    return;
+  }
+  const isCommand = /^ {2,}/.test(text);
+  const base = ink(isCommand ? "value" : "muted");
+  OUT.write(`  ${c("rail", G.rail)} ${base}${isCommand ? text : lit(text, base)}${RESET}\n`);
+}
+
 function heading(msg) {
-  console.log(`\n${msg}`);
-  console.log("─".repeat(Math.min(78, Math.max(20, msg.length))));
+  const text = String(msg);
+  const ruleLen = Math.max(3, WIDTH - (2 + 1 + 1 + text.length + 1));
+  OUT.write(
+    `\n  ${c("brandA", G.tab)} ${boldc("title", text)} ${c("rail", G.rule.repeat(ruleLen))}\n`,
+  );
+}
+
+function banner() {
+  const mode = checkOnly
+    ? badge("CHECK", "brandB")
+    : badge("WRITE", "warn");
+  const sub = checkOnly ? "read-only — nothing will be written" : `writing to ${outDir}`;
+  OUT.write("\n");
+  OUT.write(`  ${c("brandA", G.dot)} ${gradient("DATAVERSE CONTACT")} ${c("muted", "preflight")}  ${mode}\n`);
+  OUT.write(`  ${c("rail", G.rail)} ${c("muted", sub)}\n`);
+}
+
+const step = (n, text) => line(String(n), "brandB", text, "title");
+
+function scorecard() {
+  heading("Result");
+  const parts = [
+    c(passes ? "ok" : "muted", `${G.ok} ${passes} passed`),
+    c(skipped ? "skip" : "muted", `${G.skip} ${skipped} skipped`),
+    c(failures ? "fail" : "muted", `${G.fail} ${failures} failed`),
+  ];
+  const verdict = failures
+    ? badge("NOT READY", "fail")
+    : skipped
+      ? badge("PARTIAL", "warn")
+      : badge("READY", "ok");
+  OUT.write(`\n  ${verdict}  ${parts.join("   ")}`);
+  OUT.write(`${" ".repeat(4)}${c("rail", ms(performance.now() - startedAt))}\n\n`);
 }
 
 // The key is a deployment-wide secret. It never reaches stdout or stderr in
@@ -203,27 +441,36 @@ function apiScopeFromAudience(audience) {
 
 /* ── http ────────────────────────────────────────────────────────────── */
 
-async function getJson(url, { key } = {}) {
+// `label` spins while the request is in flight and is erased before anything
+// is printed, so a slow deployment looks busy rather than hung. `took` is what
+// the caller right-aligns on the result line.
+async function getJson(url, { key, label } = {}) {
   const headers = { Accept: "application/json" };
   if (key) headers.Authorization = `Bearer ${key}`;
-  let res;
+  const stop = label ? startSpinner(label) : () => {};
+  const t0 = performance.now();
   try {
-    res = await fetch(url, { headers, signal: AbortSignal.timeout(TIMEOUT_MS) });
-  } catch (err) {
-    const reason =
-      err?.name === "TimeoutError" || err?.name === "AbortError"
-        ? `no response within ${TIMEOUT_MS / 1000}s`
-        : err?.message || String(err);
-    return { networkError: reason };
+    let res;
+    try {
+      res = await fetch(url, { headers, signal: AbortSignal.timeout(TIMEOUT_MS) });
+    } catch (err) {
+      const reason =
+        err?.name === "TimeoutError" || err?.name === "AbortError"
+          ? `no response within ${TIMEOUT_MS / 1000}s`
+          : err?.message || String(err);
+      return { networkError: reason, took: performance.now() - t0 };
+    }
+    const text = await res.text().catch(() => "");
+    let json;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      /* not JSON — the caller decides whether that matters */
+    }
+    return { status: res.status, ok: res.ok, json, text, took: performance.now() - t0 };
+  } finally {
+    stop();
   }
-  const text = await res.text().catch(() => "");
-  let json;
-  try {
-    json = JSON.parse(text);
-  } catch {
-    /* not JSON — the caller decides whether that matters */
-  }
-  return { status: res.status, ok: res.ok, json, text };
 }
 
 /* ── prompts ─────────────────────────────────────────────────────────── */
@@ -319,7 +566,7 @@ function readSecretRaw(promptText) {
 async function askSecret(q) {
   const stdin = process.stdin;
   if (stdin.isTTY !== true || typeof stdin.setRawMode !== "function") {
-    console.log("     (this terminal cannot hide input — the key will be visible as you type)");
+    warn("This terminal cannot hide input — the key will be visible as you type.");
     return (await question(`${q}: `)).trim();
   }
   // readline owns stdin between questions; it has to let go before raw mode.
@@ -401,8 +648,7 @@ function appEnv({ apiUrl, scope, tenantId, clientId, apiScope }) {
 
 /* ── main ────────────────────────────────────────────────────────────── */
 
-console.log("Dataverse Contact API — help desk pack preflight");
-console.log(checkOnly ? "Mode: --check (nothing will be written)" : `Writing to: ${outDir}`);
+banner();
 
 const terraformEnvPath = join(outDir, "terraform", ".env");
 const appEnvPath = join(outDir, "app", ".env");
@@ -412,8 +658,8 @@ const appEnvPath = join(outDir, "app", ".env");
 if (!checkOnly && !force) {
   const clashes = [terraformEnvPath, appEnvPath].filter((p) => existsSync(p));
   if (clashes.length) {
-    console.error("");
-    for (const p of clashes) console.error(`  exists: ${p}`);
+    OUT.write("\n");
+    for (const p of clashes) fail(`exists: ${p}`);
     die(
       "Refusing to overwrite an existing .env. Pass --force to replace it, " +
         "or --check to run the checks without writing anything.",
@@ -440,7 +686,9 @@ if (normalised.dropped) {
 
 heading("1. Is this a Contact API?");
 
-const wellKnown = await getJson(`${apiUrl}/.well-known/oauth-protected-resource`);
+const wellKnown = await getJson(`${apiUrl}/.well-known/oauth-protected-resource`, {
+  label: "probing the deployment",
+});
 
 if (wellKnown.networkError) {
   fail(`${apiUrl} — ${wellKnown.networkError}`);
@@ -468,7 +716,7 @@ const provider = String(meta.idp_provider ?? "").toLowerCase();
 const issuer = String(meta.idp_issuer);
 const audience = meta.idp_audience;
 
-ok(`Contact API reachable at ${apiUrl}`);
+ok(`Contact API reachable at ${apiUrl}`, ms(wellKnown.took));
 info(`Identity provider: ${meta.idp_provider ?? "(not stated)"}`);
 
 if (!/^entra/.test(provider) && !/azure[-_ ]?ad/.test(provider)) {
@@ -559,7 +807,10 @@ if (!key) {
   skip("No connection key supplied — key and scope checks not run.");
 } else {
   info(`Using key ${maskKey(key)}${keyFromEnv ? " (from DATAVERSE_CONTACT_CONNECTION_KEY)" : ""}`);
-  const scopesRes = await getJson(`${apiUrl}/api/v2/_admin/scopes`, { key });
+  const scopesRes = await getJson(`${apiUrl}/api/v2/_admin/scopes`, {
+    key,
+    label: "checking the admin connection key",
+  });
   if (scopesRes.networkError) {
     fail(`GET /api/v2/_admin/scopes — ${scopesRes.networkError}`);
   } else if (scopesRes.status === 401 || scopesRes.status === 403) {
@@ -576,7 +827,10 @@ if (!key) {
     // Some deployments serve /_admin/scopes unauthenticated — it lists scope
     // names and authorities, no secrets. A 200 there therefore proves nothing
     // about the key, so confirm it against an endpoint that does enforce auth.
-    const probe = await getJson(`${apiUrl}/api/v2/_admin/${scope}/table-definitions`, { key });
+    const probe = await getJson(`${apiUrl}/api/v2/_admin/${scope}/table-definitions`, {
+      key,
+      label: "confirming it against a route that enforces auth",
+    });
     if (probe.status === 401 || probe.status === 403) {
       fail(`Admin key rejected (${probe.status}).`);
       info("The scope list is public on this deployment, so its 200 was not proof.");
@@ -584,7 +838,7 @@ if (!key) {
     } else if (probe.networkError) {
       warn(`Could not confirm the key — ${probe.networkError}`);
     } else {
-      ok("Admin key accepted.");
+      ok("Admin key accepted.", ms(probe.took));
     }
   }
 }
@@ -615,7 +869,9 @@ if (!scopeList) {
 
 heading(`4. Is the "${scope}" table config published?`);
 
-const schemaRes = await getJson(`${apiUrl}/api/v2/${scope}/schema`);
+const schemaRes = await getJson(`${apiUrl}/api/v2/${scope}/schema`, {
+  label: `reading the ${scope} schema`,
+});
 
 if (schemaRes.networkError) {
   fail(`GET /api/v2/${scope}/schema — ${schemaRes.networkError}`);
@@ -631,13 +887,13 @@ if (schemaRes.networkError) {
   );
 
   if (hasExpected) {
-    ok(`Published — the "${EXPECTED_ROUTE}" route is live.`);
+    ok(`Published — the "${EXPECTED_ROUTE}" route is live.`, ms(schemaRes.took));
     info(`Routes: ${names.join(", ")}`);
     if (schemaRes.json?.dataverseUrl) info(`Dataverse: ${schemaRes.json.dataverseUrl}`);
   } else if (names.length === 0) {
     // The schema endpoint answers 200 with an empty table list for a scope that
     // does not exist, so "empty" and "unknown scope" look identical here.
-    ok(`No routes published yet — \`terraform apply\` will create them.`);
+    ok(`No routes published yet — \`terraform apply\` will create them.`, ms(schemaRes.took));
     info("Normal before the first apply.");
   } else {
     warn(`Published, but there is no "${EXPECTED_ROUTE}" route in this scope.`);
@@ -667,18 +923,20 @@ info("account's email exactly, or sign in as somebody who has one.");
 /* ── write ───────────────────────────────────────────────────────────── */
 
 if (checkOnly) {
-  heading("Result");
-  console.log(`${failures} failed, ${skipped} skipped.`);
-  if (skipped) console.log("Not a complete readiness check — see the SKIP lines above.");
-  console.log("Nothing written (--check).");
+  scorecard();
+  if (skipped) {
+    info(`A skip is not a pass — see the ${G.skip} lines above for what went unchecked.`);
+  }
+  info("Nothing written (--check). Drop the flag to write the two .env files.");
+  OUT.write("\n");
   if (rl) rl.close();
   process.exit(failures ? 1 : 0);
 }
 
 if (failures) {
-  heading("Result");
-  console.log(`${failures} check(s) failed. Nothing written.`);
-  console.log("Fix the failures above and run again.");
+  scorecard();
+  info("Nothing written. Fix what is marked above and run again.");
+  OUT.write("\n");
   if (rl) rl.close();
   process.exit(1);
 }
@@ -698,7 +956,7 @@ if (!clientId) {
   for (let attempt = 0; attempt < 3 && !clientId; attempt++) {
     const answer = await ask("SPA client id (GUID)");
     if (isGuid(answer)) clientId = answer.toLowerCase();
-    else if (answer) console.log(`     "${answer}" is not a GUID.`);
+    else if (answer) warn(`"${answer}" is not a GUID.`);
   }
   if (!clientId) die("No valid SPA client id given.");
 }
@@ -747,16 +1005,24 @@ info(`VITE_API_BASE_URL=${apiUrl}`);
 info(`VITE_API_SCOPE=${scope}`);
 
 heading("Next");
-console.log("  1. Register these redirect URIs on the SPA app registration, under");
-console.log("     Authentication → Single-page application (NOT Web), character for");
-console.log("     character and with NO trailing slash:");
-console.log("       http://localhost:5175");
-console.log("       https://<your-deployment-host>");
-console.log("     Entra compares the string exactly; a trailing slash fails at the");
-console.log("     identity provider with AADSTS50011, before the app runs at all.");
-console.log("  2. cd terraform && bash run.sh plan   # then apply");
-console.log("  3. cd app && npm install && npm run dev");
-console.log(`  4. Sign in, then confirm the contact resolves: /api/v2/${scope}/me/whoami`);
+info("");
+step(1, "Register these redirect URIs on the SPA app registration, under");
+info("Authentication → Single-page application (NOT Web), character for");
+info("character and with NO trailing slash:");
+info("  http://localhost:5175");
+info("  https://<your-deployment-host>");
+info("Entra compares the string exactly; a trailing slash fails at the");
+info("identity provider with AADSTS50011, before the app runs at all.");
+step(2, "cd terraform && bash run.sh plan   # then apply");
+step(3, "cd app && npm install && npm run dev");
+step(4, `Sign in, then confirm the contact resolves: /api/v2/${scope}/me/whoami`);
+OUT.write("\n");
 
 if (rl) rl.close();
-process.exit(0);
+
+// NOT process.exit(0). On Node 24 / Windows, exiting explicitly here aborts in
+// libuv — "Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)" — and the
+// shell sees 127 after a run that did everything right. Setting exitCode and
+// letting the loop drain is the same contract without the crash. The non-zero
+// exits above are reached before the writes and do not hit it.
+process.exitCode = 0;

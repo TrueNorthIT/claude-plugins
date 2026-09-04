@@ -116,6 +116,19 @@ Read tiers are `me` / `team` / `all`; each of `write`, `create`, `lookup` and
 `invoke` has plain, `:team` and `:all` variants. An unrecognised action fails
 scope load — a typo takes the whole scope down, not just one route.
 
+**A grant never promotes itself to a higher tier.** Permission strings parse as
+`<subject>[:<operation>][:<tier>]`, so a bare `case:write` is tier `me`. The
+implication engine matches on subject and only ever lets read imply lookup —
+write and create imply nothing. So holding `case:write` can never produce
+`case:write:team`, and `PATCH /team/case/{id}` returns `403` from the server
+whatever the frontend does.
+
+That asymmetry is usually the point rather than a limitation, and it is worth a
+comment in the config wherever it is load-bearing. **Read your colleagues'
+records, edit only your own** is expressed entirely by granting `write` and
+withholding `write:team`. It is not a UI decision, and a portal that enforces
+it in React alone has not enforced it.
+
 ### Sharing a permission between routes
 
 Notes attached to cases shouldn't need their own permission. Give the child
@@ -181,9 +194,21 @@ identifiers, status codes, `createdon`, computed names — gets
 scaffolding a UI) sees when discovering the route. "Case title" is useful;
 "title" is not.
 
-**`filters` defaults to `["statecode eq 0"]`** — active rows only. Override it
-when a portal must show closed records too; the rcportal opportunity route does
-exactly that.
+**`default_select` is what a caller gets when it sends no `?select`.** A
+caller's own `?select` wins on every route, single-record `GET` included, so
+`default_select` decides only the no-argument case — which is the case a detail
+page usually hits. Leave a column out and the list looks correct while the
+detail view comes back with that field empty, which reads as a data problem
+rather than a config one. Put everything the default request depends on in it,
+long text columns included. A live route's `defaultFields` is a list tuned for
+*its* UI, not yours: `case` omits `description` for exactly this reason, so
+copying it wholesale imports the bug.
+
+**`filters` defaults to `["statecode eq 0"]`** — active rows only, and it is
+invisible in a config that does not mention it. Override it with an explicit
+`filters = []` and a comment whenever closed records must stay readable: a help
+desk where a resolved ticket still has to open, or the rcportal opportunity
+route. Inheriting the default silently hides half the data.
 
 **`lookup_search_contains`** switches a lookup column from `startswith` to
 `contains` matching. Set it explicitly on every route (`[]` when unused) — the
