@@ -17,9 +17,13 @@
  * Read-only against the API. Nothing is published, changed or deleted.
  *
  * Usage:
- *   node preflight.mjs [--url <api>] [--key <key>] [--scope <name>]
+ *   node preflight.mjs [--app <name> --resource-group <rg>]
+ *                      [--url <api>] [--key <key>] [--scope <name>]
  *                      [--spa-client-id <guid>] [--out <dir>]
  *                      [--check] [--force] [--yes] [--no-color] [--ascii]
+ *
+ * --app with --resource-group reads the URL and the admin key off the App
+ * Service with az, so neither has to be looked up and pasted by hand.
  *
  * --check runs every check and writes nothing — the "am I ready?" mode.
  * --force is required to overwrite a .env that already exists.
@@ -34,6 +38,7 @@
 import { mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import * as readline from "node:readline/promises";
+import { spawnSync } from "node:child_process";
 
 const DEFAULT_URL = "https://api.dataverse-contact.tnapps.co.uk";
 const DEFAULT_SCOPE = "helpdesk";
@@ -255,11 +260,15 @@ if (args.help || args.h) {
     [
       "preflight.mjs — prerequisite check + .env writer for the Contact API help desk packs",
       "",
-      "  node preflight.mjs [--url <api>] [--key <key>] [--scope <name>]",
+      "  node preflight.mjs [--app <name> --resource-group <rg>]",
+      "                     [--url <api>] [--key <key>] [--scope <name>]",
       "                     [--spa-client-id <guid>] [--out <dir>]",
       "                     [--check] [--force] [--yes]",
       "",
-      "  --url             Contact API base URL (origin only). Prompted if omitted.",
+      "  --app             App Service name. With --resource-group, az supplies",
+      "                    the URL and the admin key, so neither is typed by hand.",
+      "  --resource-group  Its resource group. Required with --app.",
+      "  --url             Contact API base URL (origin only). Overrides --app.",
       "  --key             Admin connection key. Defaults to $DATAVERSE_CONTACT_CONNECTION_KEY.",
       "  --scope           API scope. Default: helpdesk.",
       "  --spa-client-id   Entra application (client) id of your SPA registration.",
@@ -473,6 +482,78 @@ async function getJson(url, { key, label } = {}) {
   }
 }
 
+/* ── az ──────────────────────────────────────────────────────────────────
+ *
+ * Given --app and --resource-group, both the API URL and the admin key can be
+ * read straight off the App Service. That is the whole reason this exists: the
+ * alternative is asking someone to run two az incantations by hand and paste
+ * the results back in, which is error-prone in a way nothing downstream can
+ * detect — a mistyped URL fails loudly, but a key with a stray character fails
+ * as a 401 that looks like a permissions problem.
+ */
+
+// az is a .cmd shim on Windows, which Node will not exec without a shell, and
+// a shell means the arguments are parsed rather than passed. So instead of
+// quoting defensively, refuse anything that is not already a plain Azure
+// resource name. Nothing legitimate is excluded: web apps are alphanumerics
+// and hyphens, resource groups add underscore, period and parentheses.
+const AZ_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._()-]{0,88}$/;
+
+function azName(value, flag) {
+  const v = str(value);
+  if (!v) return undefined;
+  if (!AZ_NAME_RE.test(v)) die(`${flag} "${v}" is not a valid Azure resource name.`);
+  return v;
+}
+
+const azApp = azName(args.app, "--app");
+const azGroup = azName(args["resource-group"] ?? args.g, "--resource-group");
+
+if ((azApp && !azGroup) || (azGroup && !azApp)) {
+  die("--app and --resource-group go together. Pass both, or neither.");
+}
+
+let azUnavailable = false;
+
+// Returns the trimmed stdout, or undefined. An empty result is a real answer
+// for the key lookup (the setting is absent), so it is not an error here.
+// The command arrives as one string, not an argv array. az is a .cmd shim on
+// Windows, which Node refuses to exec without a shell, and passing an array
+// alongside shell:true is deprecated (DEP0190) precisely because the arguments
+// get concatenated rather than escaped. Concatenating deliberately, from values
+// already checked against AZ_NAME_RE plus constants defined here, is the honest
+// version of what that combination was doing anyway.
+function az(command, label) {
+  if (azUnavailable) return undefined;
+  const stop = startSpinner(label);
+  let res;
+  try {
+    res = spawnSync(command, {
+      encoding: "utf8",
+      shell: true,
+      windowsHide: true,
+      timeout: 60000,
+    });
+  } finally {
+    stop();
+  }
+  if (res.error || res.status === null) {
+    azUnavailable = true;
+    warn(`Could not run az (${res.error?.code ?? "no exit status"}).`);
+    info("Install the Azure CLI, or pass --url and --key directly.");
+    return undefined;
+  }
+  if (res.status !== 0) {
+    const msg = String(res.stderr || "").trim().split("\n")[0] || `az exited ${res.status}`;
+    warn(msg);
+    if (/az login|AADSTS|not logged in/i.test(msg)) {
+      info("Run `az login`, then `az account set --subscription <id>`.");
+    }
+    return undefined;
+  }
+  return str(res.stdout);
+}
+
 /* ── prompts ─────────────────────────────────────────────────────────── */
 
 let rl = null;
@@ -670,6 +751,19 @@ if (!checkOnly && !force) {
 /* ── 1. the API URL, and what it tells us about itself ───────────────── */
 
 let apiUrlRaw = str(args.url) ?? str(process.env.DATAVERSE_CONTACT_API_URL);
+let apiUrlFromAz = false;
+
+if (!apiUrlRaw && azApp) {
+  const host = az(
+    `az webapp show --name ${azApp} --resource-group ${azGroup} --query defaultHostName -o tsv`,
+    `asking az for ${azApp}`,
+  );
+  if (host) {
+    apiUrlRaw = `https://${host}`;
+    apiUrlFromAz = true;
+  }
+}
+
 if (!apiUrlRaw) {
   if (!interactive) requireValue("API URL", "--url", "DATAVERSE_CONTACT_API_URL");
   heading("Contact API");
@@ -717,6 +811,7 @@ const issuer = String(meta.idp_issuer);
 const audience = meta.idp_audience;
 
 ok(`Contact API reachable at ${apiUrl}`, ms(wellKnown.took));
+if (apiUrlFromAz) info(`URL read from ${azApp} in ${azGroup}.`);
 info(`Identity provider: ${meta.idp_provider ?? "(not stated)"}`);
 
 if (!/^entra/.test(provider) && !/azure[-_ ]?ad/.test(provider)) {
@@ -759,6 +854,28 @@ scope = scope.toLowerCase();
 
 let key = str(args.key) ?? str(process.env.DATAVERSE_CONTACT_CONNECTION_KEY);
 const keyFromEnv = !str(args.key) && Boolean(key);
+let keyFromAz = false;
+
+// An absent ADMIN_CONNECTION_KEY is a normal deployment state rather than a
+// failure, and az reports it as empty output — the same thing it prints when
+// the lookup itself went wrong. Say which happened, because the two have
+// completely different fixes.
+if (!key && azApp) {
+  const found = az(
+    `az webapp config appsettings list --name ${azApp} --resource-group ${azGroup}` +
+      ` --query "[?name=='ADMIN_CONNECTION_KEY'].value" -o tsv`,
+    "asking az for the admin connection key",
+  );
+  if (found) {
+    key = found;
+    keyFromAz = true;
+  } else if (!azUnavailable) {
+    warn(`${azApp} has no ADMIN_CONNECTION_KEY app setting.`);
+    info("That is a normal state, not a mistake — the deploy-time variable");
+    info("defaults to empty, which omits the setting entirely. Terraform can use");
+    info("a workforce Entra token instead; see PREREQUISITES.md section B.");
+  }
+}
 
 if (!key) {
   if (interactive) {
@@ -826,7 +943,12 @@ if (!key) {
   info("not a mistake — use a workforce Entra token instead, as PREREQUISITES.md");
   info("section B describes.");
 } else {
-  info(`Using key ${maskKey(key)}${keyFromEnv ? " (from DATAVERSE_CONTACT_CONNECTION_KEY)" : ""}`);
+  const keySource = keyFromAz
+    ? ` (read from ${azApp})`
+    : keyFromEnv
+      ? " (from DATAVERSE_CONTACT_CONNECTION_KEY)"
+      : "";
+  info(`Using key ${maskKey(key)}${keySource}`);
   const scopesRes = await getJson(`${apiUrl}/api/v2/_admin/scopes`, {
     key,
     label: "checking the admin connection key",
