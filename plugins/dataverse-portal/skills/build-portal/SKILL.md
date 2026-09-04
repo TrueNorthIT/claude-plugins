@@ -541,6 +541,28 @@ try {
 
 A full-page redirect isn't subject to the restriction that stopped the iframe, and when the IdP session is still alive it returns without prompting for anything.
 
+**A dev-token escape hatch, for when there is no Entra account to hand.** Worth having for development and demos — and it has to be unreachable in anything you ship:
+
+```ts
+// Dev-only twice over: import.meta.env.DEV is false in any built bundle, and
+// the token still has to be supplied explicitly. The API validates it, resolves
+// the contact, and applies exactly the same permissions and row-scoping, so
+// nothing downstream can tell the difference — which is precisely why it must
+// never be pointed at production.
+const demoToken = import.meta.env.DEV ? import.meta.env.VITE_DEMO_TOKEN : undefined
+if (demoToken) {
+  return {
+    session: { email: import.meta.env.VITE_DEMO_EMAIL },
+    isBusy: false,
+    getToken: async () => demoToken,
+    signIn: () => {},
+    signOut: () => {},
+  }
+}
+```
+
+The token is an HMAC key minted against a deployment whose `MCP_KEY_SECRET` you know — `npm run forge-key -- <email> <contact-guid> <scope>` in the API repo. It is a credential, so it belongs in a gitignored `.env.local`, never in `.env` and never in a commit.
+
 ### Contact resolution — the 404 to design for
 
 The API resolves the Dataverse contact from the token's **lowercased `email` claim**, matched against `contact.emailaddress1`. Not `oid`, not `sub`. An account whose email has no matching contact authenticates perfectly, gets a valid token, and then 404s on every `me` route.
