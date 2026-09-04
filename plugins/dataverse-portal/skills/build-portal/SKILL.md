@@ -350,7 +350,7 @@ portals run, so a developer moving between them meets the same shapes:
 | **Vite** | latest | build and dev server; no dev proxy — the API is CORS-enabled |
 | **TypeScript** | strict | |
 | **TanStack Query** | v5 | **all server state.** No `useEffect` fetching, no SWR, no Redux |
-| **MSAL** | `msal-browser` ^5.18 + `msal-react` ^5.5 | Entra External ID sign-in |
+| **MSAL** | v5, latest | `msal-browser` + `msal-react`, majors matched — Entra External ID sign-in |
 | **`@truenorth-it/dataverse-client`** | latest | every API call |
 | **React Router** | 7 | |
 | **Tailwind** | v4, via `@tailwindcss/vite` | |
@@ -366,7 +366,7 @@ PROJECT_NAME=<inferred or from prompt>
 npm create vite@latest "$PROJECT_NAME" -- --template react-ts
 cd "$PROJECT_NAME"
 npm install
-npm install @azure/msal-browser@^5.18 @azure/msal-react@^5.5 react-router-dom \
+npm install @azure/msal-browser@^5 @azure/msal-react@^5 react-router-dom \
   @tanstack/react-query @truenorth-it/dataverse-client
 npm install -D tailwindcss @tailwindcss/vite
 
