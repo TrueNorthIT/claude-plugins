@@ -45,6 +45,11 @@ import { spawnSync } from "node:child_process";
 // you tell an updated script from a stale installed copy.
 const VERSION = "0.3.0";
 
+// Where the published copy of this script lives — PREREQUISITES.md tells people
+// to download it from here, and the staleness check below compares against it.
+const RAW_SELF_URL =
+  "https://raw.githubusercontent.com/TrueNorthIT/claude-plugins/main/plugins/dataverse-contact-api/skills/contact-api-reference/scripts/preflight.mjs";
+
 const DEFAULT_URL = "https://api.dataverse-contact.tnapps.co.uk";
 const DEFAULT_SCOPE = "helpdesk";
 
@@ -575,6 +580,32 @@ async function getText(url) {
   }
 }
 
+/* ── staleness check ─────────────────────────────────────────────────── */
+
+// Downloaded copies of this script go stale silently — nothing re-fetches them.
+// So the script checks the published copy's VERSION and says when a newer one
+// exists, with the exact command to refresh. Best-effort only: offline, a 404,
+// or an unrecognisable remote all stay silent — never block a run over it.
+async function checkForNewerVersion() {
+  let text;
+  try {
+    const res = await fetch(RAW_SELF_URL, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) return;
+    text = await res.text();
+  } catch {
+    return;
+  }
+  const remote = text.match(/const VERSION = "(\d+\.\d+\.\d+)"/)?.[1];
+  if (!remote) return;
+  const [ra, rb, rc] = remote.split(".").map(Number);
+  const [la, lb, lc] = VERSION.split(".").map(Number);
+  const newer = ra !== la ? ra > la : rb !== lb ? rb > lb : rc > lc;
+  if (!newer) return;
+  warn(`This is preflight v${VERSION}; v${remote} is published. To update:`);
+  info(`  Invoke-WebRequest "${RAW_SELF_URL}" -OutFile preflight.mjs`);
+  info("(overwrites this file in place — then re-run the same command)");
+}
+
 /* ── SPA client id discovery ─────────────────────────────────────────── */
 
 // The API serves its own landing page — a Vite SPA that signs in against the
@@ -804,6 +835,8 @@ function appEnv({ apiUrl, scope, tenantId, clientId, apiScope, clientIdDiscovere
 /* ── main ────────────────────────────────────────────────────────────── */
 
 banner();
+
+await checkForNewerVersion();
 
 const terraformEnvPath = join(outDir, "terraform", ".env");
 const appEnvPath = join(outDir, "app", ".env");
