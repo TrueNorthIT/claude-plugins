@@ -21,7 +21,7 @@ API: nothing is published, changed or deleted.
 | `DATAVERSE_CONTACT_CONNECTION_KEY` | **asked** (`--key`, or `$DATAVERSE_CONTACT_CONNECTION_KEY`) |
 | `SCOPE` | **asked** (`--scope`), default `helpdesk` |
 | `VITE_ENTRA_TENANT_ID` | **discovered** — the GUID in the API's `idp_issuer` |
-| `VITE_ENTRA_CLIENT_ID` | **asked** (`--spa-client-id`). Not discoverable: it is an app registration in your tenant, and the API has no idea which apps call it |
+| `VITE_ENTRA_CLIENT_ID` | **asked** (`--spa-client-id`), with a **discovered dev-only default**: the deployment's own landing page is a SPA in the same tenant, and its bundle carries the client id it was built with. That registration belongs to the API operator (TrueNorth IT on shared deployments) — borrowing it gets a dev build signing in, no more. Offered only when the bundle's baked-in tenant matches the discovered one; register your own SPA before anything user-facing |
 | `VITE_ENTRA_API_SCOPE` | **discovered** — `api://` + the API's `idp_audience` + `/access_as_user` |
 | `VITE_API_BASE_URL` | same as the API URL |
 | `VITE_API_SCOPE` | same as `SCOPE` |
