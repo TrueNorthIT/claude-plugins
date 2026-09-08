@@ -61,7 +61,7 @@ if (!Number.isFinite(NODE_MAJOR) || NODE_MAJOR < 20) {
 
 // Keep in step with the plugin's .claude-plugin/plugin.json — the banner is how
 // you tell an updated script from a stale installed copy.
-const VERSION = "0.4.0";
+const VERSION = "0.5.0";
 
 // Where the published copy of this script lives — PREREQUISITES.md tells people
 // to download it from here, and the staleness check below compares against it.
@@ -300,6 +300,8 @@ if (args.help || args.h) {
       "  --key             Admin connection key. Defaults to $DATAVERSE_CONTACT_CONNECTION_KEY.",
       "  --scope           API scope. Default: helpdesk.",
       "  --spa-client-id   Entra application (client) id of your SPA registration.",
+      "  --all-subscriptions  Search every subscription when listing App Services,",
+      "                    not just the current one. A call each, so it is slower.",
       "  --out             Pack directory holding terraform/ and app/. Default: .",
       "  --check           Run every check, write nothing.",
       "  --force           Overwrite an existing .env.",
@@ -321,6 +323,7 @@ if (args.version === true) {
 const checkOnly = args.check === true;
 const force = args.force === true;
 const assumeYes = args.yes === true || args.y === true;
+const allSubscriptions = args["all-subscriptions"] === true;
 
 // No TTY means no prompting is possible, whatever the flags say.
 const interactive = !assumeYes && process.stdin.isTTY === true;
@@ -533,6 +536,21 @@ async function getJson(url, { key, label } = {}) {
 // and hyphens, resource groups add underscore, period and parentheses.
 const AZ_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._()-]{0,88}$/;
 
+// Every row az returns carries its full ARM id, and the subscription is its
+// first segment:
+//   /subscriptions/<guid>/resourceGroups/<rg>/providers/Microsoft.Web/sites/<n>
+// Pulling it out is what makes a pick self-contained. Every later az call can
+// then be pinned to the subscription the app was actually found in, so it
+// cannot be answered by a different one because the default moved underneath,
+// and offering a cross-subscription list stops being a way to choose something
+// the next call cannot reach.
+const AZ_SUB_RE = /^\/subscriptions\/([0-9a-f-]{36})\/resourceGroups\//i;
+
+function subscriptionOf(resourceId) {
+  const found = AZ_SUB_RE.exec(String(resourceId ?? ""))?.[1]?.toLowerCase();
+  return found && isGuid(found) ? found : undefined;
+}
+
 function azName(value, flag) {
   const v = str(value);
   if (!v) return undefined;
@@ -557,7 +575,7 @@ let azUnavailable = false;
 // get concatenated rather than escaped. Concatenating deliberately, from values
 // already checked against AZ_NAME_RE plus constants defined here, is the honest
 // version of what that combination was doing anyway.
-function az(command, label) {
+function az(command, label, quiet = false) {
   if (azUnavailable) return undefined;
   const stop = startSpinner(label);
   let res;
@@ -578,6 +596,12 @@ function az(command, label) {
     return undefined;
   }
   if (res.status !== 0) {
+    // A sweep across every subscription meets ones you have no read on, and
+    // tenant-level rows that are not subscriptions at all. Shouting five
+    // AuthorizationFailed lines at someone who asked to search everywhere
+    // buries the one line they wanted, so the caller can ask for silence and
+    // report a count instead.
+    if (quiet) return undefined;
     const msg = String(res.stderr || "").trim().split("\n")[0] || `az exited ${res.status}`;
     warn(msg);
     if (/az login|AADSTS|not logged in/i.test(msg)) {
@@ -602,37 +626,81 @@ function az(command, label) {
 async function pickWebApp() {
   heading("Which deployment?");
 
-  const account = az("az account show --query name -o tsv", "checking az");
-  if (!account) {
+  const current = az("az account show --query name -o tsv", "checking az");
+  if (!current) {
     // az() has already said whether it could not run or refused the call.
     info("Without az, pass --url (and --key) directly, or --app with");
     info("--resource-group once you are signed in.");
     return undefined;
   }
-  ok(`az signed in, subscription "${account}"`);
 
-  const raw = az(
-    'az webapp list --query "[].{name:name,rg:resourceGroup}" -o json',
-    "listing App Services",
-  );
-  if (!raw) return undefined;
-
-  let apps;
-  try {
-    apps = JSON.parse(raw);
-  } catch {
-    warn("az returned something that is not JSON. Pass --app instead.");
-    return undefined;
+  // One subscription by default. az has no cross-subscription list, so --all
+  // is a call each and slow enough that it has to be asked for; it is the
+  // answer when you genuinely do not know where the deployment lives.
+  let subs = [{ name: current, id: undefined }];
+  if (allSubscriptions) {
+    const rawSubs = az(
+      `az account list --query "[?state=='Enabled'].{name:name,id:id}" -o json`,
+      "listing subscriptions",
+    );
+    const parsed = rawSubs ? tryJson(rawSubs) : undefined;
+    if (Array.isArray(parsed) && parsed.length) {
+      subs = parsed.filter((x) => isGuid(x?.id));
+      info(`Searching ${subs.length} subscriptions. This takes a moment each.`);
+    } else {
+      warn("Could not list subscriptions; searching the current one only.");
+    }
+  } else {
+    ok(`az signed in, subscription "${current}"`);
   }
 
-  apps = (Array.isArray(apps) ? apps : [])
-    .filter((a) => AZ_NAME_RE.test(String(a?.name)) && AZ_NAME_RE.test(String(a?.rg)));
+  // defaultHostName is on the list rows already, so picking one settles the
+  // URL too and the extra `az webapp show` round trip goes away.
+  const apps = [];
+  let unreadable = 0;
+  for (const sub of subs) {
+    const scope = sub.id ? ` --subscription ${sub.id}` : "";
+    const raw = az(
+      `az webapp list${scope} --query "[].{name:name,rg:resourceGroup,host:defaultHostName,state:state,id:id}" -o json`,
+      allSubscriptions ? `listing App Services in ${sub.name}` : "listing App Services",
+      allSubscriptions,
+    );
+    const rows = raw ? tryJson(raw) : undefined;
+    if (!Array.isArray(rows)) {
+      unreadable++;
+      continue;
+    }
+    for (const r of rows) {
+      const subId = sub.id ?? subscriptionOf(r?.id);
+      if (!AZ_NAME_RE.test(String(r?.name))) continue;
+      if (!AZ_NAME_RE.test(String(r?.rg))) continue;
+      if (!r?.host) continue;
+      apps.push({
+        name: r.name,
+        rg: r.rg,
+        host: String(r.host),
+        state: String(r.state ?? ""),
+        sub: subId,
+        subName: sub.name,
+      });
+    }
+  }
+
+  if (unreadable) {
+    info(`Skipped ${unreadable} of ${subs.length}: no read access, or not a subscription.`);
+  }
 
   if (!apps.length) {
-    warn(`No App Services visible in "${account}".`);
-    info("An empty list usually means the wrong subscription rather than no");
-    info("access. `az account list -o table` shows what else you can see, and");
-    info("`az account set --subscription <name-or-id>` moves between them.");
+    warn(
+      allSubscriptions
+        ? "No App Services found in any subscription you can see."
+        : `No App Services visible in "${current}".`,
+    );
+    if (!allSubscriptions) {
+      info("An empty list usually means the wrong subscription rather than no");
+      info("access. Re-run with --all-subscriptions to search every one, or");
+      info("move with `az account set --subscription <name-or-id>`.");
+    }
     return undefined;
   }
 
@@ -640,9 +708,17 @@ async function pickWebApp() {
   const MAX = 40;
   const shown = apps.slice(0, MAX);
   OUT.write("\n");
-  shown.forEach((a, i) => info(`${String(i + 1).padStart(3)}  ${a.name}  (${a.rg})`));
+  shown.forEach((a, i) => {
+    const where = allSubscriptions ? `  [${a.subName}]` : "";
+    const dead = /^running$/i.test(a.state) ? "" : `  (${a.state || "not running"})`;
+    info(`${String(i + 1).padStart(3)}  ${a.name}  (${a.rg})${where}${dead}`);
+  });
   if (apps.length > shown.length) {
     warn(`${apps.length - shown.length} more not shown. Pass --app if yours is missing.`);
+  }
+  if (!allSubscriptions) {
+    info("Not the deployment you expected? It may be in another subscription:");
+    info("re-run with --all-subscriptions.");
   }
   OUT.write("\n");
 
@@ -653,6 +729,14 @@ async function pickWebApp() {
     warn(`"${answer}" is not one of 1-${shown.length}.`);
   }
   return undefined;
+}
+
+function tryJson(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
 }
 
 async function getText(url) {
@@ -949,12 +1033,17 @@ let apiUrlFromAz = false;
 // documented command has no name in it to substitute.
 let appName = azApp;
 let appGroup = azGroup;
+let appSub;
 
 if (!apiUrlRaw && !appName && interactive) {
   const picked = await pickWebApp();
   if (picked) {
     appName = picked.name;
     appGroup = picked.rg;
+    appSub = picked.sub;
+    // The list already carried defaultHostName, so the pick settles the URL.
+    apiUrlRaw = `https://${picked.host}`;
+    apiUrlFromAz = true;
   }
 }
 
@@ -1068,6 +1157,7 @@ let keyFromAz = false;
 if (!key && appName) {
   const found = az(
     `az webapp config appsettings list --name ${appName} --resource-group ${appGroup}` +
+      (appSub ? ` --subscription ${appSub}` : "") +
       ` --query "[?name=='ADMIN_CONNECTION_KEY'].value" -o tsv`,
     "asking az for the admin connection key",
   );
