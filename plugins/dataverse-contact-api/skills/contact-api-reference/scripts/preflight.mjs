@@ -1290,13 +1290,27 @@ info(`VITE_API_SCOPE=${scope}`);
 
 heading("Next");
 info("");
-step(1, "Register these redirect URIs on the SPA app registration, under");
-info("Authentication → Single-page application (NOT Web), character for");
-info("character and with NO trailing slash:");
-info("  http://localhost:5175");
-info("  https://<your-deployment-host>");
-info("Entra compares the string exactly; a trailing slash fails at the");
-info("identity provider with AADSTS50011, before the app runs at all.");
+if (clientIdDiscovered) {
+  // Borrowed registration: its redirect URIs belong to whoever operates the
+  // API, so telling the reader to go and add one sends them to a blade they
+  // cannot open. localhost is already on it, which is the whole reason the
+  // pack pins 5175 — so for `npm run dev` there is no Entra step at all.
+  step(1, "Nothing to register for local dev. http://localhost:5175 is already");
+  info("on the registration you borrowed, which is why this pack pins that");
+  info("port rather than letting Vite pick a free one.");
+  info("Deploying anywhere else needs its own redirect URI, and that means your");
+  info("own registration: ask an Azure admin, then re-run with");
+  info("--spa-client-id <guid>. Deploying without one fails at AADSTS50011,");
+  info("at the identity provider, before the app runs at all.");
+} else {
+  step(1, "Register these redirect URIs on the SPA app registration, under");
+  info("Authentication → Single-page application (NOT Web), character for");
+  info("character and with NO trailing slash:");
+  info("  http://localhost:5175");
+  info("  https://<your-deployment-host>");
+  info("Entra compares the string exactly; a trailing slash fails at the");
+  info("identity provider with AADSTS50011, before the app runs at all.");
+}
 step(2, "cd terraform && bash run.sh plan   # then apply");
 step(3, "cd app && npm install && npm run dev");
 step(4, `Sign in, then confirm the contact resolves: /api/v2/${scope}/me/whoami`);
