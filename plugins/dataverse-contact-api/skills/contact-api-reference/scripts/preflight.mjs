@@ -36,7 +36,7 @@
  * Exits non-zero if any check fails.
  */
 
-import { mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, writeFileSync, existsSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import * as readline from "node:readline/promises";
 import { spawnSync } from "node:child_process";
@@ -61,7 +61,7 @@ if (!Number.isFinite(NODE_MAJOR) || NODE_MAJOR < 20) {
 
 // Keep in step with the plugin's .claude-plugin/plugin.json — the banner is how
 // you tell an updated script from a stale installed copy.
-const VERSION = "0.5.1";
+const VERSION = "0.5.3";
 
 // Where the published copy of this script lives — PREREQUISITES.md tells people
 // to download it from here, and the staleness check below compares against it.
@@ -1432,19 +1432,46 @@ clientId = clientId.toLowerCase();
 heading("Writing");
 
 const missingDirs = ["terraform", "app"].filter((d) => !existsSync(join(outDir, d)));
-if (missingDirs.length) {
-  warn(`${outDir} does not look like a pack directory.`);
-  info(`Missing: ${missingDirs.map((d) => `${d}/`).join(", ")}`);
-  info("A pack has terraform/ and app/ side by side. If --out is wrong, the .env");
-  info("files will land somewhere the pack never reads them.");
-  let proceed = true;
-  if (interactive) {
-    const answer = await ask("Write there anyway, creating the directories? (y/N)", "N");
-    proceed = /^y(es)?$/i.test(answer);
-  } else {
-    info("Proceeding anyway and creating them (non-interactive).");
+
+// The question this asks is "is --out pointing somewhere silly?", and an empty
+// folder is not silly: it is the documented first step, `mkdir helpdesk && cd
+// helpdesk`, before the pack has been fetched. Asking there interrogates
+// someone for following the instructions. What is worth a question is a folder
+// with unrelated things in it, which is what a wrong --out or a run from the
+// wrong working directory actually looks like.
+function whyNotAPackDir(dir) {
+  if (!existsSync(dir)) return "It does not exist, which usually means a typo in --out.";
+  let entries;
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return "It cannot be read.";
   }
-  if (!proceed) die("Stopped. Re-run with --out pointing at the pack directory.");
+  const expected = new Set(["preflight.mjs", "terraform", "app"]);
+  const stray = entries.filter((e) => !expected.has(e) && !e.startsWith("."));
+  if (!stray.length) return undefined; // empty, or just this script: the fresh start
+  return `It holds ${stray.slice(0, 3).join(", ")}${stray.length > 3 ? ", …" : ""}, so this may be the wrong --out or the wrong working directory.`;
+}
+
+if (missingDirs.length) {
+  const doubt = whyNotAPackDir(outDir);
+  if (!doubt) {
+    info(`Creating ${missingDirs.map((d) => `${d}/`).join(" and ")} in ${outDir}.`);
+  } else {
+    warn(`${outDir} does not look like a pack directory.`);
+    info(`Missing: ${missingDirs.map((d) => `${d}/`).join(", ")}`);
+    info(doubt);
+    info("A pack has terraform/ and app/ side by side, and the .env files are no");
+    info("use anywhere the pack will not read them.");
+    let proceed = true;
+    if (interactive) {
+      const answer = await ask("Write there anyway, creating the directories? (y/N)", "N");
+      proceed = /^y(es)?$/i.test(answer);
+    } else {
+      info("Proceeding anyway and creating them (non-interactive).");
+    }
+    if (!proceed) die("Stopped. Re-run with --out pointing at the pack directory.");
+  }
 }
 
 for (const p of [terraformEnvPath, appEnvPath]) {
