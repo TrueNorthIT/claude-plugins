@@ -4,11 +4,12 @@
  * preflight.mjs — check the prerequisites for a Dataverse Contact API help desk
  * pack, then write the two .env files.
  *
- * Five values stand between a cloned pack and a working portal. Three of them
- * cannot be guessed (the API URL, the admin connection key, the SPA client id)
- * and two are published by the API itself (the Entra tenant id and the API
- * scope). This script asks for the first three, discovers the last two from the
- * API's public metadata document, verifies everything against the live
+ * Five values stand between a cloned pack and a working portal. Two of them
+ * cannot be guessed (the API URL, the admin connection key), two are published
+ * by the API itself (the Entra tenant id and the API scope), and one — the SPA
+ * client id — is usually recoverable from the deployment's own landing page,
+ * whose bundle carries the client id it was built with. This script asks for
+ * what it must, discovers the rest, verifies everything against the live
  * deployment, and writes:
  *
  *   <out>/terraform/.env   the Terraform runner's credentials
@@ -39,6 +40,15 @@ import { mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import * as readline from "node:readline/promises";
 import { spawnSync } from "node:child_process";
+
+// Keep in step with the plugin's .claude-plugin/plugin.json — the banner is how
+// you tell an updated script from a stale installed copy.
+const VERSION = "0.3.0";
+
+// Where the published copy of this script lives — PREREQUISITES.md tells people
+// to download it from here, and the staleness check below compares against it.
+const RAW_SELF_URL =
+  "https://raw.githubusercontent.com/TrueNorthIT/claude-plugins/main/plugins/dataverse-contact-api/skills/contact-api-reference/scripts/preflight.mjs";
 
 const DEFAULT_URL = "https://api.dataverse-contact.tnapps.co.uk";
 const DEFAULT_SCOPE = "helpdesk";
@@ -278,9 +288,15 @@ if (args.help || args.h) {
       "  --yes             Never prompt; fail if a required value is missing.",
       "  --no-color        Plain output, no ANSI colour. Same as NO_COLOR=1.",
       "  --ascii           ASCII glyphs instead of box-drawing and braille.",
+      "  --version         Print the script version and exit.",
       "",
     ].join("\n"),
   );
+  process.exit(0);
+}
+
+if (args.version === true) {
+  console.log(VERSION);
   process.exit(0);
 }
 
@@ -356,7 +372,7 @@ function banner() {
     : badge("WRITE", "warn");
   const sub = checkOnly ? "read-only — nothing will be written" : `writing to ${outDir}`;
   OUT.write("\n");
-  OUT.write(`  ${c("brandA", G.dot)} ${gradient("DATAVERSE CONTACT")} ${c("muted", "preflight")}  ${mode}\n`);
+  OUT.write(`  ${c("brandA", G.dot)} ${gradient("DATAVERSE CONTACT")} ${c("muted", `preflight v${VERSION}`)}  ${mode}\n`);
   OUT.write(`  ${c("rail", G.rail)} ${c("muted", sub)}\n`);
 }
 
@@ -554,6 +570,85 @@ function az(command, label) {
   return str(res.stdout);
 }
 
+async function getText(url) {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS) });
+    if (!res.ok) return null;
+    return await res.text();
+  } catch {
+    return null;
+  }
+}
+
+/* ── staleness check ─────────────────────────────────────────────────── */
+
+// Downloaded copies of this script go stale silently — nothing re-fetches them.
+// So the script checks the published copy's VERSION and says when a newer one
+// exists, with the exact command to refresh. Best-effort only: offline, a 404,
+// or an unrecognisable remote all stay silent — never block a run over it.
+async function checkForNewerVersion() {
+  let text;
+  try {
+    const res = await fetch(RAW_SELF_URL, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) return;
+    text = await res.text();
+  } catch {
+    return;
+  }
+  const remote = text.match(/const VERSION = "(\d+\.\d+\.\d+)"/)?.[1];
+  if (!remote) return;
+  const [ra, rb, rc] = remote.split(".").map(Number);
+  const [la, lb, lc] = VERSION.split(".").map(Number);
+  const newer = ra !== la ? ra > la : rb !== lb ? rb > lb : rc > lc;
+  if (!newer) return;
+  warn(`This is preflight v${VERSION}; v${remote} is published. To update:`);
+  info(`  Invoke-WebRequest "${RAW_SELF_URL}" -OutFile preflight.mjs`);
+  info("(overwrites this file in place — then re-run the same command)");
+}
+
+/* ── SPA client id discovery ─────────────────────────────────────────── */
+
+// The API serves its own landing page — a Vite SPA that signs in against the
+// same tenant. Vite inlines import.meta.env at build time, so the bundle
+// carries VITE_ENTRA_CLIENT_ID and VITE_ENTRA_TENANT_ID as string literals.
+// That client id is a working SPA registration for this deployment's tenant,
+// which makes it a sound dev default — but only when the baked tenant matches
+// the one discovered from the metadata document: the container image is shared,
+// so a landing page built for another tenant carries a client id that is
+// useless here. Returns null whenever anything is off; the caller prompts.
+async function discoverSpaClientId(apiUrl, tenantId) {
+  const html = await getText(`${apiUrl}/`);
+  if (!html) return null;
+
+  const srcs = [...html.matchAll(/<script[^>]+src="([^"]+\.js)"/g)].map((m) => m[1]);
+  for (const src of srcs.slice(0, 3)) {
+    let bundleUrl;
+    try {
+      bundleUrl = new URL(src, `${apiUrl}/`);
+    } catch {
+      continue;
+    }
+    if (bundleUrl.origin !== apiUrl) continue;
+
+    const bundle = await getText(bundleUrl.href);
+    if (!bundle) continue;
+
+    const grab = (name) =>
+      bundle.match(new RegExp(`${name}"?:\\s*"([0-9a-f-]{36})"`, "i"))?.[1]?.toLowerCase();
+    const bakedTenant = grab("VITE_ENTRA_TENANT_ID");
+    const bakedClient = grab("VITE_ENTRA_CLIENT_ID");
+
+    if (!bakedClient || !isGuid(bakedClient)) continue;
+    if (bakedTenant !== tenantId) {
+      warn("The deployment's landing page was built for a different tenant —");
+      info("its baked-in SPA client id would not work here, so it was ignored.");
+      return null;
+    }
+    return bakedClient;
+  }
+  return null;
+}
+
 /* ── prompts ─────────────────────────────────────────────────────────── */
 
 let rl = null;
@@ -697,12 +792,18 @@ function terraformEnv({ apiUrl, key, scope }) {
   ].join("\n");
 }
 
-function appEnv({ apiUrl, scope, tenantId, clientId, apiScope }) {
+function appEnv({ apiUrl, scope, tenantId, clientId, apiScope, clientIdDiscovered }) {
   return [
     "# ── Portal environment ───────────────────────────────────────────────────────",
     `# Generated by preflight.mjs on ${stamp}. The tenant id and API scope were`,
     `# discovered from ${apiUrl}/.well-known/oauth-protected-resource;`,
-    "# the client id is your own SPA app registration.",
+    ...(clientIdDiscovered
+      ? [
+          "# the client id was borrowed from the deployment's landing page — it is the",
+          "# API operator's registration (TrueNorth IT on shared deployments), DEV",
+          "# ONLY. Register your own SPA and replace it before anything user-facing.",
+        ]
+      : ["# the client id is your own SPA app registration."]),
     "#",
     "# GITIGNORED — app/.gitignore excludes .env. Nothing secret belongs here in any",
     "# case: every VITE_* value is INLINED INTO THE BROWSER BUNDLE at build time.",
@@ -734,6 +835,8 @@ function appEnv({ apiUrl, scope, tenantId, clientId, apiScope }) {
 /* ── main ────────────────────────────────────────────────────────────── */
 
 banner();
+
+await checkForNewerVersion();
 
 const terraformEnvPath = join(outDir, "terraform", ".env");
 const appEnvPath = join(outDir, "app", ".env");
@@ -1087,24 +1190,48 @@ if (failures) {
   process.exit(1);
 }
 
-/* ── the SPA client id — the one value nothing can discover ──────────── */
+/* ── the SPA client id ───────────────────────────────────────────────── */
 
 let clientId = str(args["spa-client-id"]) ?? str(process.env.VITE_ENTRA_CLIENT_ID);
+let clientIdDiscovered = false;
 
 if (!clientId) {
-  if (!interactive) requireValue("SPA client id", "--spa-client-id");
   heading("SPA client id");
   info("The Application (client) ID of the single-page application registered in");
   info(`your Entra External ID tenant (${tenantId}), granted the`);
-  info(`${apiScope} scope. It is not discoverable from the API — the API`);
-  info("does not know which apps call it.");
-  info("Entra admin centre → App registrations → your SPA → Overview.");
+  info(`${apiScope} scope. The API's metadata does not carry it, but the`);
+  info("deployment's own landing page is a SPA in the same tenant, so its");
+  info("client id makes a working dev default. Trying to read it now…");
+
+  const discovered = await discoverSpaClientId(apiUrl, tenantId);
+  if (discovered) {
+    ok(`Discovered from the deployment's landing page: ${discovered}`);
+    warn("DEV ONLY. This is the registration the API operator (TrueNorth IT on");
+    info("shared deployments) built the landing page with — you are borrowing it");
+    info("to get a dev build signing in, and the consent screen will show their");
+    info("app name, not yours. Before anything user-facing, register your own SPA:");
+    info("Entra admin centre → App registrations → New registration.");
+  } else {
+    info("Nothing usable found — enter it by hand:");
+    info("Entra admin centre → App registrations → your SPA → Overview.");
+  }
+
+  if (!interactive) {
+    if (discovered) {
+      clientId = discovered;
+      info("Using the discovered client id (non-interactive).");
+    } else {
+      requireValue("SPA client id", "--spa-client-id");
+    }
+  }
+
   for (let attempt = 0; attempt < 3 && !clientId; attempt++) {
-    const answer = await ask("SPA client id (GUID)");
+    const answer = await ask("SPA client id (GUID)", discovered);
     if (isGuid(answer)) clientId = answer.toLowerCase();
     else if (answer) warn(`"${answer}" is not a GUID.`);
   }
   if (!clientId) die("No valid SPA client id given.");
+  clientIdDiscovered = clientId === discovered;
 }
 
 if (!isGuid(clientId)) {
@@ -1144,7 +1271,11 @@ if (!key) {
 }
 
 writeFileSync(terraformEnvPath, terraformEnv({ apiUrl, key, scope }), "utf8");
-writeFileSync(appEnvPath, appEnv({ apiUrl, scope, tenantId, clientId, apiScope }), "utf8");
+writeFileSync(
+  appEnvPath,
+  appEnv({ apiUrl, scope, tenantId, clientId, apiScope, clientIdDiscovered }),
+  "utf8",
+);
 
 ok(`${terraformEnvPath}`);
 info(`DATAVERSE_CONTACT_API_URL=${apiUrl}`);
