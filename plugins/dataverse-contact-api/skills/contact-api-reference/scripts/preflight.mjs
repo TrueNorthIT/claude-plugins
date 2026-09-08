@@ -41,9 +41,27 @@ import { join, resolve } from "node:path";
 import * as readline from "node:readline/promises";
 import { spawnSync } from "node:child_process";
 
+// Checked before anything reaches for fetch, AbortSignal.timeout or
+// readline/promises. Without this the script dies on "fetch is not defined",
+// from a tool whose whole job is to explain what is wrong with your setup, and
+// the reader has no reason to suspect their Node version. 20 rather than 18
+// because the pack's app requires it too, so this is not a version you dodge
+// by skipping preflight.
+const NODE_MAJOR = Number(process.versions.node.split(".")[0]);
+if (!Number.isFinite(NODE_MAJOR) || NODE_MAJOR < 20) {
+  console.error(
+    `preflight needs Node 20 or newer. This is Node ${process.versions.node}.`,
+  );
+  console.error(
+    "The help desk pack's app needs 20+ as well, so it is not a requirement you",
+  );
+  console.error("avoid by skipping this step.");
+  process.exit(1);
+}
+
 // Keep in step with the plugin's .claude-plugin/plugin.json — the banner is how
 // you tell an updated script from a stale installed copy.
-const VERSION = "0.3.0";
+const VERSION = "0.4.0";
 
 // Where the published copy of this script lives — PREREQUISITES.md tells people
 // to download it from here, and the staleness check below compares against it.
@@ -570,6 +588,73 @@ function az(command, label) {
   return str(res.stdout);
 }
 
+/* ── choosing a deployment ───────────────────────────────────────────── */
+
+// Offered when neither --url nor --app was given and someone is there to
+// answer. The two ways az fails look identical from the outside — not
+// installed, and installed but signed out both end as "no list" — so they are
+// told apart here rather than left for the reader to guess at.
+//
+// Names come back from Azure, but they are about to be concatenated into a
+// shell command like every other name on this path, so they go through the
+// same AZ_NAME_RE gate. Azure will not mint a name that fails it; a name that
+// does fail is a reason to stop, not to quote harder.
+async function pickWebApp() {
+  heading("Which deployment?");
+
+  const account = az("az account show --query name -o tsv", "checking az");
+  if (!account) {
+    // az() has already said whether it could not run or refused the call.
+    info("Without az, pass --url (and --key) directly, or --app with");
+    info("--resource-group once you are signed in.");
+    return undefined;
+  }
+  ok(`az signed in, subscription "${account}"`);
+
+  const raw = az(
+    'az webapp list --query "[].{name:name,rg:resourceGroup}" -o json',
+    "listing App Services",
+  );
+  if (!raw) return undefined;
+
+  let apps;
+  try {
+    apps = JSON.parse(raw);
+  } catch {
+    warn("az returned something that is not JSON. Pass --app instead.");
+    return undefined;
+  }
+
+  apps = (Array.isArray(apps) ? apps : [])
+    .filter((a) => AZ_NAME_RE.test(String(a?.name)) && AZ_NAME_RE.test(String(a?.rg)));
+
+  if (!apps.length) {
+    warn(`No App Services visible in "${account}".`);
+    info("An empty list usually means the wrong subscription rather than no");
+    info("access. `az account list -o table` shows what else you can see, and");
+    info("`az account set --subscription <name-or-id>` moves between them.");
+    return undefined;
+  }
+
+  // A very long list is worse than no list: it scrolls the prompt off screen.
+  const MAX = 40;
+  const shown = apps.slice(0, MAX);
+  OUT.write("\n");
+  shown.forEach((a, i) => info(`${String(i + 1).padStart(3)}  ${a.name}  (${a.rg})`));
+  if (apps.length > shown.length) {
+    warn(`${apps.length - shown.length} more not shown. Pass --app if yours is missing.`);
+  }
+  OUT.write("\n");
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const answer = await ask(`Which one? 1-${shown.length}`, "1");
+    const n = Number.parseInt(answer, 10);
+    if (Number.isInteger(n) && n >= 1 && n <= shown.length) return shown[n - 1];
+    warn(`"${answer}" is not one of 1-${shown.length}.`);
+  }
+  return undefined;
+}
+
 async function getText(url) {
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS) });
@@ -860,10 +945,23 @@ if (!checkOnly && !force) {
 let apiUrlRaw = str(args.url) ?? str(process.env.DATAVERSE_CONTACT_API_URL);
 let apiUrlFromAz = false;
 
-if (!apiUrlRaw && azApp) {
+// --app/--resource-group when given; otherwise offer the list, so the
+// documented command has no name in it to substitute.
+let appName = azApp;
+let appGroup = azGroup;
+
+if (!apiUrlRaw && !appName && interactive) {
+  const picked = await pickWebApp();
+  if (picked) {
+    appName = picked.name;
+    appGroup = picked.rg;
+  }
+}
+
+if (!apiUrlRaw && appName) {
   const host = az(
-    `az webapp show --name ${azApp} --resource-group ${azGroup} --query defaultHostName -o tsv`,
-    `asking az for ${azApp}`,
+    `az webapp show --name ${appName} --resource-group ${appGroup} --query defaultHostName -o tsv`,
+    `asking az for ${appName}`,
   );
   if (host) {
     apiUrlRaw = `https://${host}`;
@@ -918,7 +1016,7 @@ const issuer = String(meta.idp_issuer);
 const audience = meta.idp_audience;
 
 ok(`Contact API reachable at ${apiUrl}`, ms(wellKnown.took));
-if (apiUrlFromAz) info(`URL read from ${azApp} in ${azGroup}.`);
+if (apiUrlFromAz) info(`URL read from ${appName} in ${appGroup}.`);
 info(`Identity provider: ${meta.idp_provider ?? "(not stated)"}`);
 
 if (!/^entra/.test(provider) && !/azure[-_ ]?ad/.test(provider)) {
@@ -967,9 +1065,9 @@ let keyFromAz = false;
 // failure, and az reports it as empty output — the same thing it prints when
 // the lookup itself went wrong. Say which happened, because the two have
 // completely different fixes.
-if (!key && azApp) {
+if (!key && appName) {
   const found = az(
-    `az webapp config appsettings list --name ${azApp} --resource-group ${azGroup}` +
+    `az webapp config appsettings list --name ${appName} --resource-group ${appGroup}` +
       ` --query "[?name=='ADMIN_CONNECTION_KEY'].value" -o tsv`,
     "asking az for the admin connection key",
   );
@@ -977,7 +1075,7 @@ if (!key && azApp) {
     key = found;
     keyFromAz = true;
   } else if (!azUnavailable) {
-    warn(`${azApp} has no ADMIN_CONNECTION_KEY app setting.`);
+    warn(`${appName} has no ADMIN_CONNECTION_KEY app setting.`);
     info("That is a normal state, not a mistake — the deploy-time variable");
     info("defaults to empty, which omits the setting entirely. Terraform can use");
     info("a workforce Entra token instead; see PREREQUISITES.md section B.");
@@ -1051,7 +1149,7 @@ if (!key) {
   info("section B describes.");
 } else {
   const keySource = keyFromAz
-    ? ` (read from ${azApp})`
+    ? ` (read from ${appName})`
     : keyFromEnv
       ? " (from DATAVERSE_CONTACT_CONNECTION_KEY)"
       : "";
