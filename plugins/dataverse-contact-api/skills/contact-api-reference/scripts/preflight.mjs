@@ -61,7 +61,7 @@ if (!Number.isFinite(NODE_MAJOR) || NODE_MAJOR < 20) {
 
 // Keep in step with the plugin's .claude-plugin/plugin.json — the banner is how
 // you tell an updated script from a stale installed copy.
-const VERSION = "0.5.0";
+const VERSION = "0.5.1";
 
 // Where the published copy of this script lives — PREREQUISITES.md tells people
 // to download it from here, and the staleness check below compares against it.
@@ -1499,9 +1499,27 @@ if (clientIdDiscovered) {
   info("Entra compares the string exactly; a trailing slash fails at the");
   info("identity provider with AADSTS50011, before the app runs at all.");
 }
-step(2, "cd terraform && bash run.sh plan   # then apply");
-step(3, "cd app && npm install && npm run dev");
-step(4, `Sign in, then confirm the contact resolves: /api/v2/${scope}/me/whoami`);
+// After a first run the folder holds this script and two .env files, and
+// nothing else: run.sh, main.tf and package.json all arrive with the pack.
+// Handing someone `bash run.sh plan` at that point is a command that cannot
+// work, and the failure looks like a broken preflight rather than a step that
+// has not happened yet.
+const havePackTerraform = existsSync(join(outDir, "terraform", "main.tf"));
+const havePackApp = existsSync(join(outDir, "app", "package.json"));
+let n = 2;
+
+if (!havePackTerraform || !havePackApp) {
+  step(n++, "Get the pack itself. Only the two .env files exist so far, so there");
+  info("is nothing yet for the commands below to run against:");
+  info("  with Claude    - paste the prompts from helpdesk-with-claude/PROMPTS.md");
+  info("  without Claude - copy helpdesk-without-claude's terraform/ and app/ in");
+  info("Both expect the .env files just written and neither replaces them, so");
+  info("do not let anything regenerate one.");
+}
+
+step(n++, "cd terraform && bash run.sh plan   # then apply");
+step(n++, "cd app && npm install && npm run dev");
+step(n++, `Sign in, then confirm the contact resolves: /api/v2/${scope}/me/whoami`);
 OUT.write("\n");
 
 if (rl) rl.close();
