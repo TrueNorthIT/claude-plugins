@@ -64,12 +64,12 @@ For the URL, tier, and project name: state what you assumed in one sentence befo
 
 ## Version check
 
-**Expected plugin version: 0.14.0**
+**Expected plugin version: 0.15.0**
 
 Before doing any work, verify the installed plugin version. Read the plugin manifest at `../../.claude-plugin/plugin.json` (relative to this skill file) using the Read tool:
 
-- If the `version` field matches `0.14.0` — proceed.
-- If the `version` field is **older** — tell the user: "Your dataverse-portal plugin is v`<installed>` but this skill expects v0.14.0. Run `/plugin marketplace update truenorthit` and then `/reload-plugins` to get the latest version." Then stop.
+- If the `version` field matches `0.15.0` — proceed.
+- If the `version` field is **older** — tell the user: "Your dataverse-portal plugin is v`<installed>` but this skill expects v0.15.0. Run `/plugin marketplace update truenorthit` and then `/reload-plugins` to get the latest version." Then stop.
 - If the file cannot be read — warn the user but proceed.
 
 ## Workflow
@@ -130,6 +130,15 @@ Field map from `.well-known`:
 | `idp_audience` | The audience the API validates. Either a **bare GUID** or the full `api://<guid>` Application ID URI — the shipped onboarding Terraform sets the URI form. **Strip a leading `api://` before appending `/access_as_user`** → `VITE_ENTRA_API_SCOPE` |
 | `resource` | Same value as `idp_audience`. Informational |
 | `auth0_*` | **Ignore.** Backwards-compatibility aliases from before the Entra migration. On an Entra deployment `auth0_domain` holds a `ciamlogin.com` URL, so feeding it to an Auth0 SDK produces an app that builds, runs, and never signs anyone in. |
+
+> **If any part of you wants to reach for `@auth0/auth0-react`, `Auth0Provider`,
+> `useAuth0` or `VITE_AUTH0_*` while `idp_provider` says `entra-external-id`,
+> stop and say so.** That combination means an out-of-date copy of this skill is
+> installed — below 0.14.0 it scaffolded Auth0 — and it is the one failure that
+> does not announce itself: the app builds, the dev server starts, sign-in
+> redirects, and nobody can get in. Tell the user to run
+> `claude plugin update dataverse-portal@truenorthit` and start this step again.
+> Do not split the difference by wiring MSAL against `auth0_*` values.
 
 There is exactly **one** coarse scope — `access_as_user`. No app roles, no per-permission scopes, no group claims. Everything about who may read or write what is decided inside the API from the scope's `defaults.json` plus `cr_apipermission`; see step 10.
 
@@ -881,7 +890,7 @@ If the user says yes with an email:
 
 If the user wants team-tier or admin-tier access, expand the list accordingly (e.g. add `<table>:team` + `<table>:write:team`, or `<table>:all` + `<table>:write:all`).
 
-Use the `access` family throughout. `contact-admin auth0 grant-access` still runs but is **deprecated** — it is a thin alias for `access grant`, and the rest of the `auth0` command family (`create-spa`, `list-spas`, `update-spa`, `sync-permissions`) only works on scopes still using the `auth0` provider. On an Entra deployment those commands do nothing useful.
+Use the `access` family throughout. `contact-admin auth0 grant-access` still runs but is **deprecated** — it is a thin alias for `access grant`. The rest of the `auth0` command family (`create-spa`, `list-spas`, `update-spa`, `sync-permissions`) has been **removed** as of contact-admin 0.2.0, and did not work before that either: the MCP tools they called were registered on no server and `sync-permissions` posted to a route that did not exist. That was true on `auth0`-provider scopes too, so do not reach for them there. SPA registration is an identity-provider job now, done in the Entra admin centre.
 
 If `access grant` returns `found: false`, there is no Dataverse **contact** with that email address. That is a Dataverse problem, not an Entra one: create the contact record (with `emailaddress1` set to exactly that address), then re-run. Signing the person up in Entra does not create a contact.
 
