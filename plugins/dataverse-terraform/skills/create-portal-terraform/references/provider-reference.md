@@ -83,7 +83,7 @@ fields = {
 | `read_only` | Excluded from PATCH. |
 | `lookup_table` | For `lookup`: **route name** of the target table. |
 | `value_field` | For polymorphic lookups: the underlying OData value column. |
-| `bind_field` | For aliased fields: navigation property used for `@odata.bind` writes. |
+| `bind_field` | For aliased fields: navigation property used for `@odata.bind` writes. **Set this on every `lookup` field** — see Known provider issues. |
 
 ### Blocks
 
@@ -438,3 +438,72 @@ translating a published schema by hand:
 | defaults: `permissions`, `allowSelfRegister`, `companyModel`, `join` | `default_permissions`, `allow_self_register`, `company_model`, `join` |
 
 `scripts/export-scope.mjs` does this translation for a whole scope.
+
+## Known provider issues
+
+Two defects in provider v1.0.2 produce `Provider produced inconsistent result
+after apply`. Both are the same shape: a value the provider derives is reported
+as something else at plan time, and Terraform rejects the change. In both cases
+**the write succeeds server-side** — only Terraform's consistency check fails.
+
+### `bind_field` on lookup fields → tainted resources
+
+`bind_field` is declared `Optional` but not `Computed`, and the provider fills
+it in from the Dataverse **SchemaName** (PascalCase). Any `lookup` field that
+leaves it unset fails:
+
+```
+.fields["abc_project"].bind_field: was null, but now cty.StringVal("abc_Project")
+```
+
+The resource is then **tainted**, so the next plan proposes destroying and
+recreating the route. Route deletion is permanent, so do not apply that plan.
+
+**Always set `bind_field` explicitly on lookup fields**, to the attribute's
+Dataverse SchemaName:
+
+```hcl
+reddt_project = {
+  type = "lookup", description = "Project", lookup_table = "project",
+  read_only = true, bind_field = "reddt_Project"
+}
+```
+
+Get the SchemaName from metadata:
+
+```
+GET {org}/api/data/v9.2/EntityDefinitions(LogicalName='{table}')/Attributes?$select=LogicalName,SchemaName
+```
+
+**Recovery if it has already happened.** Confirm the routes exist
+(`GET /api/v2/{scope}/schema`), then untaint rather than apply the destroy:
+
+```bash
+terraform untaint dataversecontact_table.<name>
+```
+
+Then add the `bind_field` values and re-plan — it should come back clean.
+
+### `field_count` → error on every field addition
+
+`field_count` is `Computed` with `UseStateForUnknown()`, so the plan carries the
+old count and apply returns the new one:
+
+```
+.field_count: was cty.NumberIntVal(11), but now cty.NumberIntVal(12)
+```
+
+Adding a field to an existing table errors once. The resource is **not**
+tainted and the change lands; a second apply reconciles the output. Nothing to
+change in config.
+
+### Other apply-time traps
+
+- **Polymorphic lookups must not appear in `fields`.** A lookup with more than
+  one target fails at apply, not at plan. Check first:
+  `Attributes/Microsoft.Dynamics.CRM.LookupAttributeMetadata?$select=LogicalName,Targets`
+  — one entry means single-target, more than one means polymorphic. Use it in
+  join steps and `expand` blocks instead.
+- **`lookup_table` takes the published route name**, not the Dataverse logical
+  name, and the target route must exist on the same scope or the field returns
+  a bare GUID.

@@ -1,7 +1,7 @@
 {
   "name": "dataverse-terraform",
   "description": "Define, and explain, a Dataverse Contact API portal backend as Terraform — export an existing scope into HCL and adopt it into state, scaffold and provision a new one, or read a config back in plain English. Uses the public TrueNorthIT/dataversecontact provider.",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "author": {
     "name": "TrueNorth IT",
     "email": "hello@truenorthit.co.uk"
