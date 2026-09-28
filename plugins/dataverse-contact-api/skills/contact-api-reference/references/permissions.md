@@ -128,16 +128,16 @@ Two **additive** layers, resolved per request and unioned:
 | Layer | Source | Applies to |
 |---|---|---|
 | 1 | the scope's published `defaults.json` | every authenticated caller in the scope |
-| 2 | `cr_apipermission` rows in Dataverse, keyed to the caller's contact | that one person |
+| 2 | `cpa_apipermission` rows in Dataverse, keyed to the caller's contact | that one person |
 
-Layer 2 is optional and **fails open to layer 1** — if the `cr_apipermission`
+Layer 2 is optional and **fails open to layer 1** — if the `cpa_apipermission`
 table is not installed, or the lookup errors, the caller keeps their defaults
-rather than losing everything. There is no subtraction: a `cr_apipermission`
+rather than losing everything. There is no subtraction: a `cpa_apipermission`
 row can only widen, never revoke. To take something away you must change the
 defaults.
 
-Each row carries one permission string in `cr_permission`, scoped by
-`cr_scope` and linked to the contact by `cr_contact`. **Only active rows count**
+Each row carries one permission string in `cpa_permission`, scoped by
+`cpa_scope` and linked to the contact by `cpa_contact`. **Only active rows count**
 — the lookup filters `statecode eq 0`, so deactivating a row revokes the grant
 without deleting it. That is the clean way to withdraw an individual grant.
 

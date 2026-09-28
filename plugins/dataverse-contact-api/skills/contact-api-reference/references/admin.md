@@ -120,7 +120,7 @@ contact-admin login          # device code against workforce Entra
 | `tables scaffold` | Generate a definition for a Dataverse entity |
 | `tables publish` | Publish a definition to the scope |
 | `tables test-query` | **Run a route's join for a given contact** — see below |
-| `access grant` / `list` / `revoke` | Per-user `cr_apipermission` grants |
+| `access grant` / `list` / `revoke` | Per-user `cpa_apipermission` grants |
 | `access defaults` / `show` | The scope's `defaults.json`, and the effective set |
 | `setup-table <entity>` | End-to-end: discover an entity, scaffold it, publish it |
 
@@ -149,7 +149,7 @@ API repo mints an HMAC key for a chosen identity.
 **Identity is a test input; permissions are not.** A forged key lets you say
 "treat this request as contact X" — it does **not** grant anything. Permissions
 still resolve normally from the scope's `defaults.json` unioned with that
-contact's `cr_apipermission` rows. So a forged key reproduces a real user's
+contact's `cpa_apipermission` rows. So a forged key reproduces a real user's
 access faithfully, which is the point, and cannot be used to escalate past it.
 
 Local testing only, and only where you legitimately hold the secret.

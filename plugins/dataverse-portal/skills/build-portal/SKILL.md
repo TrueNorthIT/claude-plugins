@@ -140,7 +140,7 @@ Field map from `.well-known`:
 > `claude plugin update dataverse-portal@truenorthit` and start this step again.
 > Do not split the difference by wiring MSAL against `auth0_*` values.
 
-There is exactly **one** coarse scope — `access_as_user`. No app roles, no per-permission scopes, no group claims. Everything about who may read or write what is decided inside the API from the scope's `defaults.json` plus `cr_apipermission`; see step 10.
+There is exactly **one** coarse scope — `access_as_user`. No app roles, no per-permission scopes, no group claims. Everything about who may read or write what is decided inside the API from the scope's `defaults.json` plus `cpa_apipermission`; see step 10.
 
 **Not in the discovery document: the SPA client ID.** It belongs to an app registration in the customer's Azure tenant and nothing on the API side knows about it. Step 8 asks the user for it. Nothing before then needs it, so don't ask yet.
 
@@ -851,7 +851,7 @@ npm run dev &       # background, report URL
 
 ### 10. Offer to grant the first user access
 
-Identity comes from Entra; **authorisation comes from the API**, not from Entra roles or token claims. The scope's `defaults.json` gives every authenticated user with a Dataverse contact a baseline for free, and per-user escalations live in `cr_apipermission`.
+Identity comes from Entra; **authorisation comes from the API**, not from Entra roles or token claims. The scope's `defaults.json` gives every authenticated user with a Dataverse contact a baseline for free, and per-user escalations live in `cpa_apipermission`.
 
 Check what the baseline already covers before granting anything:
 
