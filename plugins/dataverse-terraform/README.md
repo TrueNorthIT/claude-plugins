@@ -169,6 +169,6 @@ dataverse-terraform/
 | `403 Missing required permission` on every call | No published `defaults.json` — `permissions_sync` missing or never applied |
 | Provider state-consistency error about a dropped field | A polymorphic navigation property (`customerid`, `parentcustomerid_account`) was declared in `fields`. Use it in joins and `expand` only |
 | `401`/`403` from the provider itself | `connection_key` isn't byte-identical to `ADMIN_CONNECTION_KEY` |
-| A `lookup_search_contains = [] -> null` diff that never clears | The attribute is omitted; set it explicitly, `[]` if unused |
+| `Provider produced inconsistent result after apply` on `bind_field`, `field_count`, `lookup_search_contains` or `aliases` | Provider older than v1.1.1. Run `terraform init -upgrade` and commit `.terraform.lock.hcl`. If a create failed, the table is tainted: `terraform untaint` it before applying, or the next apply deletes it permanently |
 | `company_model { … }` won't parse | It's a nested attribute, not a block: `company_model = { … }` |
 | A custom API shows a `# whitespace changes` diff | Benign. State holds the API's compact JSON, the file is pretty-printed; one apply settles it |
