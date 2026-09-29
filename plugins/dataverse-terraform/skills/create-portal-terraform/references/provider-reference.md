@@ -1,8 +1,9 @@
 # `TrueNorthIT/dataversecontact` — provider reference
 
-Complete surface of the Terraform provider, taken from the v1.0.2 schema. The
-provider's own `examples/` directory is **stale** — it shows a `schema_json`
-attribute on `dataversecontact_table` that no longer exists. Trust this file.
+Complete surface of the Terraform provider, taken from the v1.1.1 schema.
+Require **v1.1.1 or later**: earlier versions fail apply with "Provider produced
+inconsistent result" whenever a lookup omits `bind_field`, `lookup_search_contains`
+is omitted, or a field is added (v1.0.x), and a failed create taints the table.
 
 Registry: <https://registry.terraform.io/providers/TrueNorthIT/dataversecontact>
 
@@ -11,7 +12,7 @@ terraform {
   required_providers {
     dataversecontact = {
       source  = "TrueNorthIT/dataversecontact"
-      version = "~> 1.0"
+      version = ">= 1.1.1, < 2.0.0"
     }
   }
 }
@@ -55,7 +56,7 @@ a single apply.
 | `icon` | no | e.g. `incident.svg`. |
 | `permission_group` | no | Share one permission with another route — see `patterns.md`. |
 | `aliases` | no | Extra route names that resolve here. |
-| `lookup_search_contains` | no | Lookup columns matched with `contains` instead of `startswith`. **Always set this explicitly** (`[]` if unused) — the provider reads it back as `[]`, never null, so omitting it causes perpetual drift. |
+| `lookup_search_contains` | no | Lookup columns matched with `contains` instead of `startswith`. Omitting it and writing `[]` are equivalent (v1.1.1+; older versions drift or fail apply when it is omitted). |
 | `filters` | no | Always-on filter expressions. Server default `["statecode eq 0"]`. |
 | `fetch_xml` | no | FetchXML template for custom list queries. |
 | `public_choices` | no | Default `true`. Choice/option-set values readable unauthenticated. |
@@ -83,7 +84,7 @@ fields = {
 | `read_only` | Excluded from PATCH. |
 | `lookup_table` | For `lookup`: **route name** of the target table. |
 | `value_field` | For polymorphic lookups: the underlying OData value column. |
-| `bind_field` | For aliased fields: navigation property used for `@odata.bind` writes. |
+| `bind_field` | For aliased fields: navigation property used for `@odata.bind` writes. Optional — if omitted the API derives it from the attribute's Dataverse SchemaName (e.g. `abc_project` → `abc_Project`). Needs v1.1.1+; older versions fail apply when a lookup omits it. |
 
 ### Blocks
 

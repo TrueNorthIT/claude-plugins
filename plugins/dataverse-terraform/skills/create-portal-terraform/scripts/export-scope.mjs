@@ -228,8 +228,8 @@ function emitTable(def, label, perms) {
   add(`  default_select = ${hclList(def.defaultSelect, 2)}`);
   add("");
   add(`  lookup_fields = ${hclList(def.lookupFields, 2)}`);
-  // Always emitted: the provider reads this back as [] rather than null, so
-  // leaving it out of the config shows up as perpetual drift.
+  // Always emitted, so the config says what the scope does. Provider v1.1.1+
+  // treats an omitted list the same as []; older versions drifted without it.
   add(`  lookup_search_contains = ${hclList(def.lookupSearchContains ?? [], 2)}`);
 
   // Row scoping: how this table joins back to the caller's contact / account.
@@ -580,7 +580,7 @@ function starterMainTf() {
     "  required_providers {",
     "    dataversecontact = {",
     '      source  = "TrueNorthIT/dataversecontact"',
-    '      version = "~> 1.0"',
+    '      version = ">= 1.1.1, < 2.0.0"',
     "    }",
     "  }",
     "}",
@@ -767,7 +767,7 @@ blocks.push(
     "  required_providers {",
     "    dataversecontact = {",
     '      source  = "TrueNorthIT/dataversecontact"',
-    '      version = "~> 1.0"',
+    '      version = ">= 1.1.1, < 2.0.0"',
     "    }",
     "  }",
     "}",
