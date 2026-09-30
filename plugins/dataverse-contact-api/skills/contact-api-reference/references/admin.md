@@ -105,6 +105,22 @@ It returns `{ scopes, scopeAuth }`, where each `scopeAuth` entry gives the
 authority and API scope a client should use for that scope — the fastest way to
 find out how to sign in to a deployment you have just been handed.
 
+Where the Contact Portal API solution (2.2.0.0+) is installed, the API copies
+each scope's routes and default access into that scope's Dataverse (the
+read-only *API Scope* / *API Route* tables in the Portal Access app). It does
+so within five minutes, straight after a Table Manager or Terraform save, or on
+demand — also unauthenticated, and throttled to once per 30 seconds:
+
+```bash
+curl -s -X POST "$API_URL/api/v2/_admin/sync"
+```
+
+It returns one result per scope: `updated`, `unchanged`, `not-installed` (no
+solution in that scope's environment), `no-access` (the app user needs the
+*Contact Portal API Service* role) or `error` (the detail is in the API's log,
+not the response). An *API Scope* row that doesn't change after a save usually
+means one of the last three.
+
 ## The CLI
 
 ```bash
