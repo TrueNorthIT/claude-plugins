@@ -102,7 +102,7 @@ not.
 ## Permissions
 
 `default_permissions` is what every authenticated caller gets. Per-user grants
-in `cr_apipermission` are unioned on top at request time.
+in `cpa_apipermission` are unioned on top at request time.
 
 ```hcl
 default_permissions = {
