@@ -47,7 +47,8 @@ below are indistinguishable from each other at the call site and obvious in
 | `405 Public access is read-only` | `POST /public/{table}` on a table that does not set `publicCreate` | Not fixable from the client. Public create is a per-table opt-in — see `routes.md` |
 | `405 Lake-backed tables are read-only` | Any write on a lake-served route | Not fixable from the client |
 | `405 Custom API "X" is a function — use GET, not POST` | Wrong verb on `/public/actions/{name}` | `GET` for functions, `POST` for actions |
-| `401` on `/public/actions/{name}` | The path says `public` but the action is not `publicInvoke` | Send a bearer token; the caller also needs a resolved contact and `{name}:invoke` |
+| `401` on `/public/actions/{name}` | The path says `public` but the action is not `publicInvoke` — and the SDK's `invokeFunction` / `invokeAction` never send a token | Send a bearer token with `fetch` (`sdk.md`); the caller also needs a resolved contact and `{name}:invoke`. Don't make the action public to get round it |
+| `test-query --tier me` with a contact id that matches nobody returns rows | The route isn't filtering by caller — usually a `fetchXml` template without `{{contactid}}`, which replaces the join path | Fix the route before anyone uses it. See `security.md` |
 | Sign-in fails at the Microsoft page, never reaches the app | `AADSTS50011` — redirect URI mismatch, usually a trailing slash | Make the app registration and the client config byte-identical. No trailing slash |
 | A list returns `200` and **zero rows**, no error | The join path does not reach any rows | See below — this is its own diagnosis |
 | Only 100 rows come back when you asked for 500 | `top` is clamped to 100 silently, not rejected | Page with `page.next`, re-appending your query options as above |

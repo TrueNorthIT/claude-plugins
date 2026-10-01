@@ -8,7 +8,7 @@ Each plugin is independent — install only the ones you want.
 
 | Plugin | Description | Install |
 |---|---|---|
-| [`dataverse-contact-api`](./plugins/dataverse-contact-api) | How the [Dataverse Contact API](https://api.dataverse-contact.tnapps.co.uk) works — tiers, the permission grammar, the query dialect, Entra auth, the SDK, and 401/403/404 triage. The shared reference the two below assume. | `claude plugin install dataverse-contact-api@truenorthit` |
+| [`dataverse-contact-api`](./plugins/dataverse-contact-api) | How the [Dataverse Contact API](https://api.dataverse-contact.tnapps.co.uk) works — tiers, the permission grammar, the query dialect, Entra auth, the SDK, 401/403/404 triage, and what the server does and doesn't enforce. The shared reference the two below assume. | `claude plugin install dataverse-contact-api@truenorthit` |
 | [`dataverse-portal`](./plugins/dataverse-portal) | Scaffold a React + TypeScript + Tailwind SPA that signs citizens in with Microsoft Entra External ID (MSAL) and consumes the Contact API. | `claude plugin install dataverse-portal@truenorthit` |
 | [`dataverse-terraform`](./plugins/dataverse-terraform/README.md) | Define a Contact API portal backend as Terraform — export an existing scope into HCL and adopt it into state, scaffold and provision a new one, or read a config back in plain English. | `claude plugin install dataverse-terraform@truenorthit` |
 | [`create-gds-service`](./plugins/create-gds-service) | Scaffold or remove a GOV.UK Design System service in a service-builder-flow repo. | `claude plugin install create-gds-service@truenorthit` |

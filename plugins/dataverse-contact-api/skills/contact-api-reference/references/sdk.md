@@ -61,6 +61,27 @@ For `whoami`, `companies` and `register` that mirrors the HTTP surface. For
 and `client.public` has no `create` method for it. If you need a public create,
 `fetch` it directly. `team` and `all` genuinely answer 405.
 
+**Custom APIs: `client.public.invokeFunction` and `invokeAction` send no
+token.** They can only reach custom APIs published with `publicInvoke: true`.
+One without it — the default — needs a bearer token, a resolved contact and its
+invoke permission, at the same `/public/actions/{name}` path. Call it with
+`fetch` and the token from your own `getToken`:
+
+```ts
+// recordId only for an entity-bound action — that's where an ownershipCheck
+// takes the record from.
+const path = `/public/actions/${encodeURIComponent(name)}` +
+  (recordId ? `/${encodeURIComponent(recordId)}` : "");
+const res = await fetch(`${baseUrl}/api/v2/${scope}${path}`, {
+  method: "POST", // GET for a function, with parameters in the query string
+  headers: { Authorization: `Bearer ${await getToken()}`, "Content-Type": "application/json" },
+  body: JSON.stringify(input),
+});
+```
+
+A 401 from the SDK on an action means this. It is not a reason to make the
+action public — `publicInvoke` makes it callable by anyone on the internet.
+
 **There is no `delete` method anywhere**, because there is no `DELETE` verb.
 Deactivation is an update to `statecode`. For `incident`, even that will not
 work as a plain update: Dataverse requires the `CloseIncident` action.
@@ -139,7 +160,9 @@ try {
 ```
 
 Show `e.body.message` to a developer; do not show it to a citizen. A 403 body
-naming `case:write:team` is precise and also meaningless to the end user.
+naming `case:write:team` is precise and also meaningless to the end user, and
+other messages carry Dataverse's raw error text or echo request input back.
+`e.message` is the same text. Map on `e.status` for the screen, log the rest.
 
 ## Context helpers
 
@@ -152,6 +175,15 @@ Both return a derived client and leave the original alone. `withCompany` is what
 you wire to a company switcher when `whoami` reports
 `hasMultipleCompanies: true` — it changes what `team` resolves to.
 
+Neither is impersonation. The API checks the id against the contacts and
+companies the caller's own email resolves to, and refuses anything else — a 403
+on `me`, `team` and writes. They choose between identities the caller already
+has.
+
+When the selection changes, so does what every query returns. Put the selected
+company id in every TanStack Query key (or clear the cache on switch), or the
+UI shows one company's rows under another's name until the refetch lands.
+
 ## Realtime
 
 ```ts
@@ -162,6 +194,21 @@ There is also a `useRealtime` helper that subscribes and automatically
 invalidates the matching TanStack Query caches when a row changes, so a list
 re-fetches itself without you wiring an event handler per query key. Prefer it
 over hand-rolled invalidation — the key-matching is the fiddly part.
+
+An event says *that* a row changed — a table, an action and a `recordId` — not
+that this caller may see it. Let the scoped refetch decide; never render from an
+event, and never treat its `recordId` as one of the caller's own rows.
+
+## What the SDK takes on trust
+
+Two inputs go out exactly as given, with the caller's token attached:
+
+- **Record ids.** `get(table, id)` and `update(table, id, …)` put `id` into the
+  request path unencoded. An id taken from a route param (`/case/:id`) is
+  whatever the address bar said — check it is a GUID before passing it on.
+- **Next-page URLs.** `fetchPage(url)` sends the bearer token to any absolute URL
+  it is handed. Give it the `page.next` the API returned (plus your re-appended
+  query options), never a URL from anywhere else.
 
 ## Typed clients from the live schema
 

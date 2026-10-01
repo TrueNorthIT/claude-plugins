@@ -205,6 +205,7 @@ function emitTable(def, label, perms) {
   if (Array.isArray(def.filters) && def.filters.length === 0) {
     add(`# filters = [] clears the statecode default: inactive rows are visible.`);
   }
+  for (const warning of securityWarnings(def)) add(`# CHECK: ${warning}`);
 
   add(`resource "dataversecontact_table" "${label}" {`);
   add(`  scope                  = var.scope`);
@@ -304,6 +305,60 @@ function emitTable(def, label, perms) {
   return L.join("\n");
 }
 
+/**
+ * Lines in a route that the API applies exactly as written and that commonly
+ * leak — surfaced in the route's banner so a reviewer of an adopted scope sees
+ * them without reading the whole resource. Each is a prompt to check, not a
+ * verdict: some are deliberate.
+ */
+function securityWarnings(def) {
+  const warnings = [];
+  const fields = Object.entries(def.fields ?? {});
+  const writable = ([, f]) => !f.readOnly;
+
+  if (def.fetchXml) {
+    const scoped = /\{\{(contactid|accountid)\}\}/.test(def.fetchXml);
+    warnings.push(
+      scoped
+        ? "fetch_xml replaces the join steps and filters on list queries; its {{contactid}}/{{accountid}} placeholders are what scope them."
+        : "fetch_xml has no {{contactid}}/{{accountid}} placeholder — list queries return the same rows on every tier, public included.",
+    );
+  }
+
+  if (def.dataverseTable === "contacts" && def.fields?.emailaddress1 && !def.fields.emailaddress1.readOnly) {
+    warnings.push("emailaddress1 is writable — it is the sign-in key the API matches tokens to. Make it read_only.");
+  }
+
+  for (const cd of def.createDefaults ?? []) {
+    const bound = fields.filter(
+      ([name, f]) => name === cd.field || name === cd.field.toLowerCase() || f.bindField === cd.field,
+    );
+    if (bound.some(writable)) {
+      warnings.push(`create_default binds ${cd.field}, which is writable — the caller can re-point it after create.`);
+    }
+  }
+
+  const unchecked = fields.filter(([, f]) => f.type === "lookup" && !f.readOnly && !f.lookupTable).map(([n]) => n);
+  if (unchecked.length) {
+    warnings.push(`writable lookup(s) with no lookup_table, so writes to them aren't checked against the caller's rows: ${unchecked.join(", ")}.`);
+  }
+
+  const writableLookups = fields.filter(([, f]) => f.type === "lookup" && !f.readOnly).map(([n]) => n);
+  if (def.publicCreate === true && writableLookups.length) {
+    warnings.push(`public_create with writable lookup(s) — anonymous callers can point them at any row: ${writableLookups.join(", ")}.`);
+  }
+
+  if (Array.isArray(def.defaultSelect) && def.defaultSelect.length === 0) {
+    warnings.push("default_select is empty, which the API reads as no projection — whole rows come back.");
+  }
+  for (const ex of def.expands ?? []) {
+    if (!ex.fields || ex.fields.length === 0) {
+      warnings.push(`expand ${ex.lookupField} lists no fields — the whole related row comes back.`);
+    }
+  }
+  return warnings;
+}
+
 /* ── permissions_sync -> HCL ─────────────────────────────────────────── */
 
 function emitPermissionsSync(defaults, tableRefs, apiRefs) {
@@ -311,9 +366,11 @@ function emitPermissionsSync(defaults, tableRefs, apiRefs) {
   const add = (s) => L.push(s);
   const perms = defaults.permissions ?? {};
 
-  add(`# Baseline permissions every authenticated caller gets in this scope (the`);
-  add(`# scope's defaults.json). A scope with no published defaults grants nothing`);
-  add(`# — every route answers 403, reads included.`);
+  add(`# Baseline permissions (the scope's defaults.json) for every token this scope`);
+  add(`# accepts — callers with no Dataverse contact included, and other portals'`);
+  add(`# users unless the scope has its own OIDC audience. So no all, and nothing`);
+  add(`# ending in :all, here. A scope with no published defaults grants nothing — every`);
+  add(`# route answers 403, reads included.`);
   add(`resource "dataversecontact_permissions_sync" "scope" {`);
   add(`  scope = var.scope`);
   if (defaults.allowSelfRegister !== undefined) {
@@ -632,7 +689,9 @@ function starterMainTf() {
     '    fullname      = { type = "string", description = "Full name", read_only = true }',
     '    firstname     = { type = "string", description = "First name" }',
     '    lastname      = { type = "string", description = "Last name" }',
-    '    emailaddress1 = { type = "string", description = "Primary email address" }',
+    "    # emailaddress1 is the sign-in key: the API matches the token's email to it.",
+    "    # Writable, a caller could detach their own login or take over someone else's.",
+    '    emailaddress1 = { type = "string", description = "Primary email address", read_only = true }',
     '    telephone1    = { type = "string", description = "Business phone" }',
     '    mobilephone   = { type = "string", description = "Mobile phone" }',
     '    createdon     = { type = "datetime", description = "Date created", read_only = true }',
@@ -649,7 +708,8 @@ function starterMainTf() {
     "",
     "# ── Permissions ────────────────────────────────────────────────────────",
     "# Required. A scope with no published defaults.json grants nothing — every",
-    "# route answers 403, reads included.",
+    "# route answers 403, reads included. These reach every token the scope",
+    "# accepts, contact or not, so never all, or anything ending in :all, here.",
     'resource "dataversecontact_permissions_sync" "scope" {',
     "  scope = var.scope",
     "",
@@ -757,7 +817,7 @@ blocks.push(
       ? [`# Public tier: ${publicRoutes.map((d) => d.routeName).join(", ")}.`]
       : []),
     ...(broadRoutes.length
-      ? [`# Unscoped ("all") grants: ${broadRoutes.join(", ")} — every caller sees every row.`]
+      ? [`# Unscoped ("all") grants: ${broadRoutes.join(", ")} — every token the scope accepts sees every row, contact or not.`]
       : []),
     "#",
     "# Each route below carries a header comment: the Dataverse table it fronts,",

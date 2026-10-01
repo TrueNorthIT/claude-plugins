@@ -9,7 +9,7 @@
     {
       "name": "dataverse-contact-api",
       "source": "./plugins/dataverse-contact-api",
-      "description": "How the Dataverse Contact API works — the me/team/all/public tiers, the permission grammar, the non-OData query dialect, Entra External ID auth, the SDK, and how to triage a 401/403/404/empty list. The shared reference behind dataverse-portal and dataverse-terraform."
+      "description": "How the Dataverse Contact API works — the me/team/all/public tiers, the permission grammar, the non-OData query dialect, Entra External ID auth, the SDK, how to triage a 401/403/404/empty list, and the security boundary — what the server enforces and what a scope or client must get right. The shared reference behind dataverse-portal and dataverse-terraform."
     },
     {
       "name": "dataverse-portal",

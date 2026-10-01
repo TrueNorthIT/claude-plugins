@@ -1,6 +1,6 @@
 ---
 name: create-portal-terraform
-description: Define, and explain, a Dataverse Contact API portal backend as Terraform — which tables are published as routes, which fields callers can read and write, how rows are scoped to the signed-in citizen, and the baseline permissions. Use when the user asks to create / write / generate Terraform for the portal API or for a scope, to codify or export an existing scope as Terraform, to import a scope into Terraform state, to provision a new scope with terraform apply, or to add a table / route / permission to an existing Contact API Terraform repo. Also use to explain, review, document or hand over an existing Contact API Terraform config — "what does this scope expose", "who can see X", "what will this apply do", or reviewing a change for whether it widens access. Works against the public TrueNorthIT/dataversecontact provider.
+description: Define, and explain, a Dataverse Contact API portal backend as Terraform — which tables are published as routes, which fields callers can read and write, how rows are scoped to the signed-in citizen, and the baseline permissions. Use when the user asks to create / write / generate Terraform for the portal API or for a scope, to codify or export an existing scope as Terraform, to import a scope into Terraform state, to provision a new scope with terraform apply, or to add a table / route / permission to an existing Contact API Terraform repo. Also use to explain, review, document or hand over an existing Contact API Terraform config — "what does this scope expose", "who can see X", "what will this apply do", reviewing a change for whether it widens access, or checking whether a scope is secure before go-live. Works against the public TrueNorthIT/dataversecontact provider.
 ---
 
 # create-portal-terraform
@@ -43,7 +43,7 @@ Load on demand, not upfront:
 | When you are doing this | Read |
 |---|---|
 | Writing or editing any resource | `references/provider-reference.md` |
-| Deciding how a route should be scoped or permissioned | `references/patterns.md` |
+| Deciding how a route should be scoped or permissioned, and the security pass before every apply | `references/patterns.md` |
 | Explaining, reviewing or handing over a config | `references/explaining.md` |
 
 The provider's own `examples/` directory is stale — it shows a `schema_json`
@@ -221,8 +221,17 @@ this order:
    get it right before anything else. An ownerless child gets a reverse join
    through its parent, never `["all"]`.
 3. **What callers may see** — `fields` (with `read_only` on everything a
-   citizen must not PATCH) and `default_select`.
-4. **What callers may do** — the route's entry in `default_permissions`.
+   citizen must not PATCH) and `default_select`. Every column in `fields` can
+   be selected by anyone who can read the route, so declare only what the
+   portal uses.
+4. **What callers may do** — the route's entry in `default_permissions`. That
+   entry reaches every token the scope accepts, not just this portal's users:
+   never `all`, nor any action ending in `:all` (`write:all`, `lookup:all`, `invoke:all`…).
+5. **What could go wrong** — run the route through *The security pass* at the
+   end of `references/patterns.md`. The API enforces exactly what the config
+   says, so a route can plan, apply and work in the portal and still leak:
+   a writable `emailaddress1`, a lookup with no `lookup_table`, an `expand`
+   that publishes a staff email, notes that include staff-only ones.
 
 ### B4. Plan, apply, verify
 
@@ -240,6 +249,20 @@ curl -s -H "Authorization: Bearer $DATAVERSE_CONTACT_CONNECTION_KEY" \
   "$DATAVERSE_CONTACT_API_URL/api/v2/_admin/<scope>/table-definitions" | head -c 400
 ```
 
+Answering is half of it. Prove each `me` route also keeps strangers out — a
+contact id that matches nobody must get nothing back:
+
+```bash
+CONTACT_ADMIN_TOKEN="$DATAVERSE_CONTACT_CONNECTION_KEY" \
+  contact-admin tables test-query <route> --tier me \
+  --contact-id 3f2a8c1e-0000-4000-8000-000000000000 \
+  --url "$DATAVERSE_CONTACT_API_URL" --scope <scope> --json
+```
+
+Any rows mean the route is returning the table rather than the caller's slice
+of it — usually a `fetch_xml` without placeholders, which replaces the join.
+Stop and fix it; it is not a data problem.
+
 ---
 
 ## Mode C — explain a config
@@ -256,7 +279,10 @@ what is live.
 
 This needs no credentials and no network. A freshly cloned repo, a PR diff, or
 a config for a deployment you have no access to can all be explained in full,
-because everything that decides who sees what is in the HCL.
+because everything the *scope* decides about who sees what is in the HCL. Two
+things that also matter are not: per-person grants (rows in Dataverse) and
+whether the scope has its own OIDC audience (a deployment setting). Say so
+when they bear on the answer.
 
 The one exception is *"does this match what's actually deployed?"*, which is a
 different question. Answering it needs the key: run `bash run.sh plan` and read
@@ -267,8 +293,10 @@ answering — a config review is not a drift check.
 
 It carries the route-by-route method, the plain-English rendering of join
 paths, the permission vocabulary, and the list of constructs to flag every time
-(`all`, `public_read`, `public_create`, `filters = []`, `create_default`,
-self-registration settings).
+(`all` — above all in `default_permissions`, `team`, `public_read`,
+`public_create`, `fetch_xml`, `filters = []`, `create_default`, writable
+identity columns, lookups without `lookup_table`, `expand`, notes routes,
+`permission_group`, `publicInvoke`, self-registration settings).
 
 ### C3. Answer at the altitude asked
 
@@ -280,8 +308,16 @@ self-registration settings).
   Nothing here touches citizen data; it republishes route definitions and the
   scope's `defaults.json`.
 - **"Review this PR"** → what changed, and specifically whether it widens who
-  can see what. A schema tweak is routine; a permission or `public_*` change is
-  the thing to stop on.
+  can see or change what. A description tweak is routine. Stop on: a
+  permission or `public_*` change; a `read_only` removed; a column added to
+  `fields` (every reader can select it); a new `expand`, `fetch_xml` or join
+  step; `publicInvoke` switched on — especially to clear a 401, which is a
+  portal sending no token, not a scope that is too strict.
+- **"Is this scope secure?"** → *The security pass* in
+  `references/patterns.md`, item by item, quoting the line behind each answer.
+  Say plainly what a config can't tell you: per-person grants live in
+  Dataverse, not the HCL, and whether a route really filters is only proven by
+  the `test-query` negative test against the deployment.
 
 Quote the `main.tf` lines you are describing. An explanation that can't be
 traced to a line is a guess, and on access control a plausible guess is worse
@@ -303,7 +339,9 @@ stay in step, and forgetting the third is the usual bug:
    `permissions_sync` — otherwise the defaults are not re-published and the
    route answers 403 despite a clean apply.
 
-Run `terraform fmt` before finishing.
+Then put the new route through *The security pass* (`references/patterns.md`)
+— the rest of the config having passed it says nothing about a route it has
+never seen. Run `terraform fmt` before finishing.
 
 ## Failure modes worth recognising
 
@@ -314,3 +352,7 @@ Run `terraform fmt` before finishing.
 | `401`/`403` from the provider itself | `connection_key` isn't byte-identical to `ADMIN_CONNECTION_KEY` on the deployment |
 | a one-line `lookup_search_contains = [] -> null` diff that never goes away | the attribute is omitted from config; set it explicitly, `[]` if unused |
 | `company_model { … }` fails to parse | it is a nested attribute, not a block: `company_model = { … }` |
+| apply fails publishing `permissions_sync` with `contains unknown action` | a typo in `default_permissions` — the API rejects the whole document rather than publish it |
+| `test-query --tier me` for a contact that matches nobody returns rows | the route isn't filtering by caller — usually `fetch_xml` without `{{contactid}}`, which replaces the join. Fix before anyone uses it |
+| a portal gets `401` calling a custom API | the API isn't `publicInvoke` and the SDK's invoke methods send no token. The portal must send one; don't switch `publicInvoke` on |
+| a field "saves" with a 200 but never changes | it is `read_only`; the API drops it silently from create and PATCH |

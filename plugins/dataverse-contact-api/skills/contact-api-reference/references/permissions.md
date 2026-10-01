@@ -127,8 +127,16 @@ Two **additive** layers, resolved per request and unioned:
 
 | Layer | Source | Applies to |
 |---|---|---|
-| 1 | the scope's published `defaults.json` | every authenticated caller in the scope |
+| 1 | the scope's published `defaults.json` | every token the scope accepts — with or without a Dataverse contact |
 | 2 | `cpa_apipermission` rows in Dataverse, keyed to the caller's contact | that one person |
+
+Layer 1 is wider than "our portal's users". A caller with no matching contact
+still gets it — they are refused at `me` and `team`, which need a contact, but
+not at `all`, which doesn't. And unless the scope sets its own OIDC audience, it
+accepts tokens issued for every other scope on the deployment, so users of
+other portals get it too. That is why `all`, and any action ending in `:all`, never
+belong in defaults: unscoped access is for named people, through layer 2. See
+`security.md`.
 
 Layer 2 is optional and **fails open to layer 1** — if the `cpa_apipermission`
 table is not installed, or the lookup errors, the caller keeps their defaults
@@ -139,7 +147,16 @@ defaults.
 Each row carries one permission string in `cpa_permission`, scoped by
 `cpa_scope` and linked to the contact by `cpa_contact`. **Only active rows count**
 — the lookup filters `statecode eq 0`, so deactivating a row revokes the grant
-without deleting it. That is the clean way to withdraw an individual grant.
+without deleting it. That is the clean way to withdraw an individual grant
+(`contact-admin access revoke` deletes the row instead).
+
+A row belongs to a contact, and the contact is whoever signs in with its email
+address — so a grant follows the address, not a person. Contact matching does
+**not** filter on `statecode`: deactivating someone's contact leaves them signed
+in with the defaults and every grant still active. To cut a person off, block
+their sign-in at the identity provider *and* change the contact's address, so a
+new account with the same address can't match it again. A token already issued
+still works until it expires, about an hour.
 
 ### The 5-minute cache
 

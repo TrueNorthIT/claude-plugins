@@ -47,7 +47,7 @@ a single apply.
 | `route_name` | yes | URL segment, e.g. `case`. Forces replacement. |
 | `dataverse_table` | yes | OData **entity set** name, e.g. `incidents`. |
 | `primary_key` | yes | e.g. `incidentid`. |
-| `default_select` | yes | Columns returned when the caller doesn't pass `$select`. |
+| `default_select` | yes | Columns returned when the caller doesn't pass `select`. Never `[]` — an empty list means "no projection", not "no columns". It does not limit exposure: a caller can `select` anything in `fields`. |
 | `lookup_fields` | yes | Columns returned by the `/lookup` route. |
 | `fields` | yes | Map keyed by Dataverse **logical name** — see below. |
 | `dataverse_logical_name` | no | Derived by singularising `dataverse_table` when omitted. |
@@ -58,10 +58,10 @@ a single apply.
 | `aliases` | no | Extra route names that resolve here. |
 | `lookup_search_contains` | no | Lookup columns matched with `contains` instead of `startswith`. Omitting it and writing `[]` are equivalent (v1.1.1+; older versions drift or fail apply when it is omitted). |
 | `filters` | no | Always-on filter expressions. Server default `["statecode eq 0"]`. |
-| `fetch_xml` | no | FetchXML template for custom list queries. |
+| `fetch_xml` | no | FetchXML template for list queries. **Replaces the join steps and `filters`** on the list endpoint — rows are scoped only by `{{contactid}}` / `{{accountid}}` in the template, and one without them returns the same rows on every tier the route serves (`public` too, if `public_read`). See `patterns.md`. |
 | `public_choices` | no | Default `true`. Choice/option-set values readable unauthenticated. |
-| `public_read` | no | Default `false`. Route readable on the public tier. |
-| `public_create` | no | Default `false`. Unauthenticated POST allowed. |
+| `public_read` | no | Default `false`. Route readable on the public tier — every column in `fields`, every `expand`, and every row its `filters` allow, by paging. |
+| `public_create` | no | Default `false`. Unauthenticated POST allowed. No caller, so `create_default` binds nothing and lookups go unchecked. Does not need `public_read`. |
 
 Computed: `id` (`{scope}/{route_name}`), `source` (`published` / `built-in`),
 `field_count`.
@@ -73,16 +73,20 @@ fields = {
   incidentid  = { type = "string", description = "Case ID", read_only = true }
   title       = { type = "string", description = "Case title" }
   statuscode  = { type = "choice", description = "Status", read_only = true }
-  customerid  = { type = "lookup", description = "Customer", lookup_table = "contact" }
+  primarycontactid = { type = "lookup", description = "Primary contact", lookup_table = "contact", read_only = true }
 }
 ```
+
+`primarycontactid` decides whose the case is, so it is read-only; a
+`create_default` binds it on create. (A polymorphic navigation property such as
+`customerid` doesn't belong in `fields` at all — see `patterns.md`.)
 
 | Key | Notes |
 |---|---|
 | `type` | One of `string`, `number`, `datetime`, `boolean`, `lookup`, `choice`. |
 | `description` | Required — it is the API's field documentation, not a comment. |
-| `read_only` | Excluded from PATCH. |
-| `lookup_table` | For `lookup`: **route name** of the target table. |
+| `read_only` | Dropped silently from create **and** PATCH bodies — there is no create-only setting. Everything without it is writable by whoever holds `write` / `create`. |
+| `lookup_table` | For `lookup`: **route name** of the target table (an alias or the logical name also resolves). It is also what lets the API check, on `me` / `team` writes, that the row a caller points at is theirs — a writable lookup without it, or naming a route this scope doesn't publish, is written unchecked. |
 | `value_field` | For polymorphic lookups: the underlying OData value column. |
 | `bind_field` | For aliased fields: navigation property used for `@odata.bind` writes. Optional — if omitted the API derives it from the attribute's Dataverse SchemaName (e.g. `abc_project` → `abc_Project`). Needs v1.1.1+; older versions fail apply when a lookup omits it. |
 
@@ -97,7 +101,7 @@ alternate_contact_join_path {
 }
 
 create_default {
-  field      = "tn_Citizen"   # navigation property / lookup field
+  field      = "tn_Citizen"   # navigation property / lookup field — keep its column read_only (or out of fields)
   bind_to    = "contact"      # "contact" or "account"
   entity_set = "contacts"     # entity set for the @odata.bind URL
 }
@@ -117,6 +121,16 @@ expand {
 Join-step arguments: `table`, `from`, `key` (all required — pass `key = ""`
 where there is none) and `reverse` (optional bool). Steps are **ordered**; each
 hop walks from the previous table to the next.
+
+A `create_default` overwrites the caller's value on an authenticated create
+only, so the column it binds should be either absent from `fields` or
+`read_only = true` there. Writable, the caller can PATCH it afterwards. And if
+`fields` exposes it under a different name from the default's `field`, the
+default can't overwrite it: both binds go to Dataverse on create, so either
+the caller's value lands or the create fails on the conflicting binds. An `expand` returns its `field`
+blocks from whatever row the lookup points at, with no scoping of its own and
+on every tier — list fields explicitly, and only ones anyone who can read the
+parent may see.
 
 ## `dataversecontact_custom_api`
 
@@ -149,6 +163,11 @@ resource "dataversecontact_custom_api" "expand_calendar" {
 }
 ```
 
+`expand-calendar` is `publicInvoke` because it is a read-only function that
+turns a resource calendar into free slots — data an anonymous visitor to a
+booking page is meant to see. That is the bar for `publicInvoke`; leave it
+`false` (the default) for anything else.
+
 Computed: `id`, `source`, `dataverse_unique_name`, `is_function`,
 `binding_type`.
 
@@ -159,7 +178,7 @@ HCL schema to validate it for you.
 
 | Field | Required | Notes |
 |---|---|---|
-| `routeName` | yes | URL segment under `/public/actions/{routeName}` — see the routing note below. |
+| `routeName` | yes | URL segment under `/public/actions/{routeName}` — the only action route, authenticated unless `publicInvoke`; see the routing note below. |
 | `dataverseUniqueName` | yes | The Custom API's unique name in Dataverse — used in the OData URL. |
 | `isFunction` | yes | `true` = GET, read-only. `false` = POST, has side effects. |
 | `bindingType` | yes | `global` (service root), `entity` (bound to one record), `entityCollection` (bound to a set). |
@@ -168,7 +187,7 @@ HCL schema to validate it for you.
 | `displayName` | no | Defaults to `dataverseUniqueName`. |
 | `description` | no | Shown in discovery and the OpenAPI document. |
 | `requiredPermission` | no | Defaults to `{routeName}:invoke`. |
-| `publicInvoke` | no | Default `false`. Callable unauthenticated. Cannot be combined with `ownershipCheck`. |
+| `publicInvoke` | no | Default `false`, which means callable with a token, a resolved contact and `requiredPermission`. `true` = callable by anyone, unauthenticated — and `ownershipCheck` is then skipped, so the two can't usefully be combined (nothing rejects the combination; the check just never runs). |
 | `requestParameters` | no | Inputs. Defaults to `[]`. |
 | `responseProperties` | no | Outputs. Defaults to `[]`. |
 | `ownershipCheck` | no | Tier-aware ownership verification — see below. |
@@ -201,6 +220,11 @@ actions — the record ID comes from the URL. Omit `contactColumn` or
 
 A POST action that mutates a record, has no `ownershipCheck`, and is granted
 `invoke` is worth flagging in review: nothing ties the call to the caller.
+
+A function (`isFunction: true`) is called with `GET`, and the API assumes it
+changes nothing. Make sure the Dataverse side agrees — above all when it is
+`publicInvoke`, because any web page can fire an anonymous `GET` from an image
+tag.
 
 ## `dataversecontact_permissions_sync`
 
@@ -240,10 +264,10 @@ resource "dataversecontact_permissions_sync" "scope" {
 | Attribute | Notes |
 |---|---|
 | `scope` | Forces replacement when changed. |
-| `default_permissions` | Map of route name → action list. Valid actions: `me`, `team`, `all`; `write`, `write:team`, `write:all`; `create`, `create:team`, `create:all`; `lookup`, `lookup:team`, `lookup:all`; `invoke`, `invoke:team`, `invoke:all`. An unrecognised action fails scope load, so a typo takes the whole scope down. |
-| `allow_self_register` | Default `false`. Lets a signed-in caller with no contact self-provision via `POST /me/register`. |
+| `default_permissions` | Map of route name → action list. Valid actions: `me`, `team`, `all`; `write`, `write:team`, `write:all`; `create`, `create:team`, `create:all`; `lookup`, `lookup:team`, `lookup:all`; `invoke`, `invoke:team`, `invoke:all`. An unrecognised action is rejected when the defaults are published (a 400), so the apply fails rather than publishing a broken scope. **Reaches every token the scope accepts** — callers with no contact (who can still use `all`), and other portals' users unless the scope has its own audience — so never put `all`, or any action ending in `:all`, here — `invoke:all` included, which reduces an `ownershipCheck` to "the record exists". |
+| `allow_self_register` | Default `false`. Lets a signed-in caller with no contact self-provision via `POST /me/register` — with the email from their token — and receive `default_permissions` at once. |
 | `company_model` | Nested **attribute** (`= { … }`, not a block). `strategy` is `parent-account` or `associated-accounts`; the latter takes `associated_accounts = { relationship, account_id_field, account_name_field, fetch_xml }`. |
-| `join` | Nested **attribute**. `strategy` (only `domain-list` today), `domain_field`, `require_match`. |
+| `join` | Nested **attribute**. `strategy` (only `domain-list` today), `domain_field`, `require_match`. The `domain_field` column decides who may join each company: keep it staff-maintained, `read_only` (or absent) on every route, and free of shared or consumer domains — the API refuses only a short built-in list such as gmail.com. |
 | `triggers` | Map of strings — change any value to force a re-publish. |
 
 Computed: `id` (the scope name), `permission_count`.
@@ -297,7 +321,10 @@ Scope is the **first path segment** after `/api/v2`, on both planes:
 So `rcportal`'s case list is `/api/v2/rcportal/me/case`, and `citizenbooking`'s
 is `/api/v2/citizenbooking/me/case` — same provider, same deployment, different
 scope, entirely separate route tables and permissions. A scope is the unit of
-isolation between portals.
+isolation between portals for routes and permissions — not for sign-in. Unless
+it sets its own `{SCOPE}__OIDC_AUDIENCE` on the deployment, it accepts the same
+tokens as every other scope there, so another portal's users reach its
+`default_permissions`.
 
 (The API also accepts an older shape where the scope arrives as a `?scope=`
 query parameter from a Vercel rewrite and the path carries no scope segment.
@@ -324,7 +351,7 @@ where tier is one of `me`, `team`, `all` or `public`:
 |---|---|
 | `GET /api/v2/{scope}/{tier}/{route}` | List, scoped by the tier's join path |
 | `POST /api/v2/{scope}/{tier}/{route}` | Create (needs `create`; `create_default` bindings applied) |
-| `GET|PATCH /api/v2/{scope}/{tier}/{route}/{id}` | Single record |
+| `GET` / `PATCH /api/v2/{scope}/{tier}/{route}/{id}` | Single record |
 | `GET /api/v2/{scope}/{tier}/lookup/{route}` | Type-ahead over `lookup_fields` |
 | `GET /api/v2/{scope}/{tier}/aggregate/{route}` | Aggregates |
 | `GET /api/v2/{scope}/{tier}/changes/{route}` | Dataverse change-tracking delta |
@@ -332,10 +359,12 @@ where tier is one of `me`, `team`, `all` or `public`:
 
 The `public` tier is deliberately narrower: list, single record and
 `/public/actions/{name}` only. It rejects `lookup` and `aggregate` outright, so
-`public_read` never hands an anonymous caller a type-ahead over your data.
+`public_read` never hands an anonymous caller a type-ahead over your data. It
+does let them `select` and `filter` on every column in `fields`, read every
+configured `expand`, and page through every row the route's `filters` allow.
 
-**Custom APIs are only invocable on the public tier.** Verified against the
-deployed API on 2026-08-25:
+**Custom APIs have exactly one route: `/api/v2/{scope}/public/actions/{routeName}`.**
+Verified against the deployed API on 2026-08-25:
 
 | Request | Result |
 |---|---|
@@ -343,13 +372,19 @@ deployed API on 2026-08-25:
 | `GET /api/v2/{scope}/actions/expand-calendar` | `404` — no such route |
 | `GET /api/v2/{scope}/me/actions/expand-calendar` | `404 Unknown table: actions` — falls through to table routing |
 
-The permission model has `invoke`, `invoke:team` and `invoke:all`, and the
-`CustomApiHint` type comment still describes `/api/v2/{scope}/actions/{name}`,
-but the router only wires `actions` under `public`. So a custom API needs
-`publicInvoke: true` to be callable at all today, and an `invoke` grant in
-`default_permissions` has no route to authorise on the authenticated tiers.
-Say so if a config contains one — it is dead configuration, not a working
-permission.
+The `public` in that path decides nothing. Without `publicInvoke`, the handler
+requires a bearer token, a resolved contact and `requiredPermission` — so
+`invoke`, `invoke:team` and `invoke:all` grants are live permissions, and the
+tier a caller holds is also what `ownershipCheck` verifies against (their
+contact, their account, or at `all` only that the record exists). Only
+`publicInvoke: true` skips all of it. (The `CustomApiHint` type comment still
+describes `/api/v2/{scope}/actions/{name}`; that route does not exist.)
+
+One trap catches portals: the SDK's `client.public.invokeFunction` /
+`invokeAction` send no token, so calling a non-public API through them is a 401.
+The fix is for the portal to send the token itself, not for the scope to make
+the API public. A change that sets `publicInvoke` to clear a 401 is a change to
+stop on.
 
 Scope-level endpoints the `permissions_sync` settings govern:
 

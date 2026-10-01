@@ -30,6 +30,12 @@ per-table decision (`public_create` in Terraform, `publicCreate` in a schema
 definition), and it should be set only on tables whose rows anyone on the
 internet may create.
 
+With no caller, nothing caller-shaped applies: `createDefaults` bind nothing,
+and lookup values are not checked against anyone's rows. The anonymous caller
+sets every writable field, lookups included, and the 201 echoes the row through
+`defaultSelect`. It does not require `publicRead`, and the API does no rate
+limiting of its own — see `security.md`.
+
 Everywhere else `public` writes are a 405 `Public access is read-only`.
 
 ### `/public/actions/` is not public
@@ -50,6 +56,16 @@ that does not look like it should need a contact at all.
 The permission is the custom API's own `requiredPermission`, which defaults to
 `{name}:invoke`. It obeys the ordinary tier grammar, so `{name}:invoke:team` and
 `{name}:invoke:all` both satisfy it — see `permissions.md`.
+
+This is the only action route. `/{scope}/actions/{name}` is a 404, and
+`/{scope}/me/actions/{name}` falls through to table routing
+(`Unknown table: actions`). Invoke grants are live on it: the caller's highest
+invoke tier is also what an `ownershipCheck` verifies against — their contact,
+their account, or (at `all`) only that the record exists.
+
+The SDK's `client.public.invokeFunction` / `invokeAction` never send a token, so
+they can only call `publicInvoke` APIs. Call an authenticated one with `fetch` —
+`sdk.md` has the snippet.
 
 **`GET` invokes a function, `POST` invokes an action**, and the handler checks
 this before anything else. Getting it the wrong way round is a 405 that names
