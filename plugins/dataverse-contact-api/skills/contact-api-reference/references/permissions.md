@@ -152,10 +152,9 @@ without deleting it. That is the clean way to withdraw an individual grant
 
 A row belongs to a contact, and the contact is whoever signs in with its email
 address — so a grant follows the address, not a person. Only active contacts
-match (API 1.24.0 and later), so deactivating someone's contact drops their
-per-person grants along with `/me` and `/team`. They stay signed in with the
-scope's defaults until their sign-in is blocked at the identity provider. A
-token already issued still works until it expires, about an hour.
+match (API 1.24.0 and later), so deactivating someone's contact drops its
+per-person grants. Once every contact their email had is inactive, the API
+refuses them on every data route with a 403, defaults included.
 
 ### The 5-minute cache
 

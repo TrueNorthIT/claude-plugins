@@ -168,12 +168,12 @@ choice of company (below), with the oldest as the default; in the
 associated-accounts model only the oldest is used.
 
 Deactivating a contact stops it matching (API 1.24.0 and later; older
-deployments match inactive contacts too). That ends the person's `/me` and
-`/team` access and their per-person grants, but not their sign-in: like any
-signed-in caller with no contact, they keep the scope's defaults on `/all`. To
-cut someone off completely, block their sign-in at the identity provider too.
-A token already issued works until it expires, about an hour, and contact
-matches are cached for five minutes.
+deployments match inactive contacts too). Deactivate one of several and that
+company's access ends. Once every contact an email had is inactive, the API
+refuses the person on every data route with a 403 ("Your access was withdrawn
+by an administrator"), and they can't sign themselves up again; whoami still
+answers, so a portal can say why. A brand-new person with no contact at all is
+unaffected. Contact matches are cached for five minutes, so allow that long.
 
 Because the address is the join, API 1.24.0 and later refuse any update that
 changes a contact's `emailaddress1`, whatever the route declares. Mark it

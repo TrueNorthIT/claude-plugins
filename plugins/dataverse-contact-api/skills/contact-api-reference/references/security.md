@@ -201,11 +201,11 @@ Keep `contact:write:team` and `contact:write:all` out of defaults altogether.
   that chain must be one the provider has verified and the user cannot edit.
 - Every active contact with a matching address resolves. In the parent-account
   model several matches become a choice of company; in the associated-accounts
-  model the oldest wins (`auth.md`). **Deactivating a contact ends `/me`,
-  `/team` and per-person grants, but not the sign-in** (API 1.24.0 and later;
-  older deployments match inactive contacts too). The person keeps the scope's
-  defaults on `/all`. To cut someone off completely, block their sign-in at
-  the identity provider as well.
+  model the oldest wins (`auth.md`). **Deactivating every contact a person
+  has cuts them off** (API 1.24.0 and later): each data route answers 403, and
+  they can't sign themselves up again. Older deployments match inactive
+  contacts, so there, block the sign-in at the identity provider and change
+  the contact's `emailaddress1`.
 - Neither is instant. A token already issued keeps working until it expires
   (about an hour), because the API checks only its signature, issuer, audience
   and expiry; contact matches and permissions are also cached for five minutes.
