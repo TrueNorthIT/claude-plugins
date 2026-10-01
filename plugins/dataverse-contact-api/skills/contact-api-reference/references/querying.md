@@ -118,22 +118,27 @@ A list response carries the next page ready-made:
 }
 ```
 
-**`page.next` carries only `top`, `cursor` and `orderBy`.** That is the whole
-URL the server builds. Every other parameter you sent on page 1 is dropped:
+**From API 1.24.0, `page.next` carries your query.** Alongside `top`,
+`cursor` and `orderBy` it repeats the `select`, `expand`, `filter` (every
+one), `filterLogic`, `created`, `modified` and `search` you sent, so follow it
+as given. Re-appending them anyway is harmless: an identical repeated filter is
+merged, not counted twice.
+
+**On an older deployment it carries only `top`, `cursor` and `orderBy`:**
 
 | In `page.next` | Dropped — you must re-append it |
 |---|---|
 | `top`, `cursor`, `orderBy` | `select`, `filter`, `filterLogic`, `expand`, `created`, `modified` |
 
-So a client that follows `page.next` verbatim gets page 2 of the route's
+There, a client that follows `page.next` verbatim gets page 2 of the route's
 **default select, unfiltered** — wider than page 1, differently shaped, and with
 no error to say so. The tier join still applies, so nobody else's rows appear;
 what you get is your own rows that page 1's filter excluded, carrying whatever
 fields the route defaults to. Closed cases reappearing halfway down an "open
 cases" list is the classic sighting.
 
-Take `cursor` and `top` from `next`, keep the `orderBy` it hands back, and
-re-send everything else exactly as you sent it on page 1:
+On such a deployment, take `cursor` and `top` from `next`, keep the `orderBy`
+it hands back, and re-send everything else exactly as you sent it on page 1:
 
 ```
 # page 1
@@ -152,9 +157,9 @@ GET /api/v2/default/me/case?top=20&cursor=<opaque>&orderBy=createdon:desc
 Never build the `cursor` yourself — it is opaque and wraps the data layer's own
 paging token. When `page.next` is `null`, you are on the last page.
 
-This bites the SDK too: `fetchPage()` and `eachPage()` both follow `page.next`
-as given, so an `eachPage()` loop started with a filter returns a filtered first
-page and unfiltered ones after it. See `sdk.md`.
+The SDK's `fetchPage()` and `eachPage()` follow `page.next` as given, so on an
+older deployment an `eachPage()` loop started with a filter returns a filtered
+first page and unfiltered ones after it. See `sdk.md`.
 
 There is no offset paging. `skip` is accepted as a parameter but a positive
 `skip` without a cursor is a 400:

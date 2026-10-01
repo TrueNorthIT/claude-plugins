@@ -122,17 +122,18 @@ The same constraints as the HTTP layer apply: `top` maxes at 100, at most ten
 filter conditions, and the operator must suit the field's type. See
 `querying.md`.
 
-### Paging drops your query options
+### Paging and your query options
 
 `fetchPage(page.page.next)` and `eachPage(...)` follow the server's `next` URL
-exactly as given, and that URL carries only `top`, `cursor` and `orderBy` — not
-`select`, `filter`, `filterLogic` or `expand`. An `eachPage()` loop therefore
-yields a correctly filtered first page and **unfiltered** ones after it, with
-nothing to signal the change.
+exactly as given. From API 1.24.0 that URL carries your `select`, `filter`,
+`filterLogic` and `expand`, so paging just works.
 
-`list()` takes no `cursor` option, so you cannot re-issue the query with one.
-The way round it is to append your own parameters to the `next` URL and hand
-that to `fetchPage()`, which sends whatever string you give it:
+On an older deployment it carries only `top`, `cursor` and `orderBy`, and an
+`eachPage()` loop yields a correctly filtered first page and **unfiltered** ones
+after it, with nothing to signal the change. `list()` takes no `cursor` option,
+so the way round it is to append your own parameters to the `next` URL and hand
+that to `fetchPage()`, which sends whatever string you give it (harmless on 1.24.0
+and later too):
 
 ```ts
 const qs = "&select=title,statuscode&filter=statecode%20eq%200";

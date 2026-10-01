@@ -45,7 +45,7 @@ below are indistinguishable from each other at the call site and obvious in
 | `404 No company account is available for team access…` | No account on the contact, or no `X-Company-Id` selected | The message names both models; supply whichever input is missing |
 | `404` on one `{id}` that you know exists | The row exists but the join does not reach you at that tier | Try the same id at `team`, then `all`. If `all` finds it, it is a join question, not a data question |
 | `400 Invalid pagination state. Use the cursor from 'page.next'…` | A `skip` without a cursor | Take the cursor from `page.next`; there is no offset paging |
-| Page 2 returns rows page 1 filtered out, or is missing fields page 1 had | `page.next` carries only `top`, `cursor` and `orderBy` | Re-append your `select` / `filter` / `filterLogic` / `expand` to it — see `querying.md` |
+| Page 2 returns rows page 1 filtered out, or is missing fields page 1 had | Before API 1.24.0, `page.next` carries only `top`, `cursor` and `orderBy` | Upgrade, or re-append your `select` / `filter` / `filterLogic` / `expand` to it — see `querying.md` |
 | `400 Cannot filter by unknown field …` | A misspelled field in `select` / `filter` / `orderBy` / `expand` | Take the "did you mean" suggestion, or list the real fields with `/{scope}/schema?table={table}` |
 | `400 Operator 'contains' is not valid for choice field …` | Wrong operator for the field's type | The message names the allowed set |
 | `405 Method not allowed` on a create | `POST` to `team` or `all` | Create is `me`-only. Do not read `Access-Control-Allow-Methods` — it advertises the POST the route just refused |
