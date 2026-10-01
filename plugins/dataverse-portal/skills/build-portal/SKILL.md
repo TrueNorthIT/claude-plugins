@@ -64,12 +64,12 @@ For the URL, tier, and project name: state what you assumed in one sentence befo
 
 ## Version check
 
-**Expected plugin version: 0.16.1**
+**Expected plugin version: 0.16.2**
 
 Before doing any work, verify the installed plugin version. Read the plugin manifest at `../../.claude-plugin/plugin.json` (relative to this skill file) using the Read tool:
 
-- If the `version` field matches `0.16.1` — proceed.
-- If the `version` field is **older** — tell the user: "Your dataverse-portal plugin is v`<installed>` but this skill expects v0.16.1. Run `/plugin marketplace update truenorthit` and then `/reload-plugins` to get the latest version." Then stop.
+- If the `version` field matches `0.16.2` — proceed.
+- If the `version` field is **older** — tell the user: "Your dataverse-portal plugin is v`<installed>` but this skill expects v0.16.2. Run `/plugin marketplace update truenorthit` and then `/reload-plugins` to get the latest version." Then stop.
 - If the file cannot be read — warn the user but proceed.
 
 ## Workflow
@@ -1023,7 +1023,7 @@ If the user wants team-tier or admin-tier access, expand the list accordingly (e
 - **`:all` is every row in the table**, for that person, through any portal on the scope. `write:all` also lets them point a writable lookup at any row. Grant it to named staff who need it, never to a test citizen "to make it work". A 403 on a citizen portal is answered by fixing the join or the tier, not by widening the grant.
 - **`:team` is only as narrow as the account model.** If contacts were bulk-loaded under one catch-all account, `team` is every citizen.
 - **A grant follows the email address.** Whoever can sign in with it holds it.
-- **To withdraw a grant, `contact-admin access revoke`** (it deletes the `cpa_apipermission` row; deactivating the row in Dataverse works too). Cutting someone off is different. From API 1.24.0, deactivating their *contact* stops it matching their sign-in: it ends `/me`, `/team` and their per-person grants, and they can't sign themselves up again. To also end the scope's defaults and keep them out entirely, block their sign-in in Entra. On an older deployment deactivating isn't enough, because inactive contacts still match: block the sign-in *and* change the contact's `emailaddress1`. A token already issued keeps working until it expires, about an hour.
+- **To withdraw a grant, `contact-admin access revoke`** (it deletes the `cpa_apipermission` row; deactivating the row in Dataverse works too). Cutting someone off is different. From API 1.24.0, deactivating their *contact* does it: once every contact their email had is inactive, every data route answers 403 and they can't sign themselves up again (whoami still answers, so the portal can say why). On an older deployment deactivating isn't enough, because inactive contacts still match: block the sign-in in Entra *and* change the contact's `emailaddress1`.
 
 Use the `access` family throughout. `contact-admin auth0 grant-access` still runs but is **deprecated** — it is a thin alias for `access grant`. The rest of the `auth0` command family (`create-spa`, `list-spas`, `update-spa`, `sync-permissions`) has been **removed** as of contact-admin 0.2.0, and did not work before that either: the MCP tools they called were registered on no server and `sync-permissions` posted to a route that did not exist. That was true on `auth0`-provider scopes too, so do not reach for them there. SPA registration is an identity-provider job now, done in the Entra admin centre.
 
