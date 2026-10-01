@@ -95,7 +95,7 @@ actually parented before granting any `team` permission.
 
 | Column | What a writable one allows |
 |---|---|
-| `contact.emailaddress1` | It is the sign-in key. The caller can detach their contact from their own login — and, with any write tier above `me` on contacts, set someone else's address to their own and then sign in *as* that contact |
+| `contact.emailaddress1` | It is the sign-in key. API 1.24.0 and later refuse any update that changes it, whatever the schema says. On an older deployment a writable one lets the caller detach their contact from their own login — and, with any write tier above `me` on contacts, point someone else's contact at an address they control and sign in *as* that contact |
 | the company link (`parentcustomerid`) | It decides `team`. The caller can move themselves into another company |
 | any column a join path follows | It decides whose a row is |
 | the account column a `join` reads (`domain_field`) | It decides who may self-register into that company |
@@ -110,17 +110,22 @@ Keep `contact:write:team` and `contact:write:all` out of defaults altogether.
   Leave out what no portal needs: internal notes, risk or safeguarding flags,
   staff-only comments.
 - **Never leave `defaultSelect` empty, and give every expand an explicit field
-  list.** An empty list means "no projection", not "nothing".
+  list.** An empty list means "no projection", not "nothing": Dataverse returns
+  the whole row. API 1.24.0 and later cut the response back to `fields`; older
+  deployments pass the whole row to the caller.
 - **An expand is as exposed as the parent row.** It returns its configured
   fields from whatever row the lookup points at — no join, no filters on the
   related row, on every tier including `public`. An `ownerid` expand that
   includes a staff member's email address publishes it to everyone who can read
   the parent.
-- **`fetchXml` replaces the join path and the route's `filters`** for list
-  queries. Rows are scoped only by `{{contactid}}` / `{{accountid}}`
-  placeholders in the template. A template without them returns the same rows
-  on every tier the route serves (`public` too, if it is `publicRead`), and
-  ignores the caller's `select` / `filter`. Prefer join paths, and review any
+- **`fetchXml` replaces the join path** for list queries, and ignores the
+  caller's `select` / `filter`. Rows are scoped only by `{{contactid}}` /
+  `{{accountid}}` placeholders in the template. From API 1.24.0 a template
+  serves `me` only if it carries `{{contactid}}`, and `team` only with
+  `{{accountid}}` (otherwise that tier uses the join path), and its rows are
+  checked against the route's `filters`. On older deployments a template
+  without placeholders returns the same rows on every tier the route serves
+  (`public` too, if it is `publicRead`). Prefer join paths, and review any
   FetchXML route as a security change.
 - **A child route sees everything its join reaches.** Notes or activities joined
   through the case return every note on the case, including the ones staff
@@ -135,10 +140,12 @@ Keep `contact:write:team` and `contact:write:all` out of defaults altogether.
   every configured expand, and — by paging — every row the route's `filters`
   allow, to anyone.
 - **`publicCreate`** accepts anonymous inserts. With no caller, `createDefaults`
-  bind nothing and lookups are not ownership-checked, and the 201 echoes the
-  new row using `defaultSelect`. Give a `publicCreate` route no writable
-  lookups, no writable join-path columns and a short `defaultSelect`. It does
-  not require `publicRead`.
+  bind nothing. From API 1.24.0 a lookup in an anonymous create may point only
+  at a row of a `publicRead` route that the route's filters let through, and
+  the 201 leaves lookups out; older deployments check neither and echo each
+  lookup's label. Give a `publicCreate` route no writable lookups, no writable
+  join-path columns and a short `defaultSelect`. It does not require
+  `publicRead`.
 - **The API does no rate limiting.** Anything public needs it at the edge — a
   WAF, Front Door, a gateway. A CAPTCHA in the portal protects nothing, because
   the endpoint can be called without the portal.
@@ -160,9 +167,11 @@ Keep `contact:write:team` and `contact:write:all` out of defaults altogether.
 - **A function (`isFunction: true`, called with `GET`) must have no side
   effects**, above all when it is `publicInvoke`: anyone's web page can trigger
   an anonymous `GET` with an image tag.
-- The SDK's `invokeFunction` / `invokeAction` send no token, so a portal using
-  them can reach only `publicInvoke` APIs. That is a reason to send the token
-  directly (`sdk.md`), never to make an action public.
+- Call an authenticated custom API with `client.me.invokeFunction` /
+  `invokeAction` (SDK 1.24.0 and later), which send the token.
+  `client.public.invokeFunction` / `invokeAction` send none, so they reach
+  only `publicInvoke` APIs. A 401 from them is a reason to switch to
+  `client.me`, never to make an action public.
 
 ### Self-registration
 
@@ -183,19 +192,20 @@ Keep `contact:write:team` and `contact:write:all` out of defaults altogether.
   `contact.emailaddress1`. Whoever the identity provider issues a token for that
   address **is** that contact, as far as the API is concerned.
 - The API verifies the token's signature, issuer, audience and expiry, and takes
-  the claim's value on trust. So the identity provider must only ever put a
-  **verified** address in it. Entra External ID's email sign-up verifies it; a
+  the claim's value on trust. From API 1.24.0 it refuses a token that says
+  `email_verified: false`, but most providers send no such claim. So the
+  identity provider must only ever put a **verified** address in it. Entra External ID's email sign-up verifies it; a
   federated or custom provider may not. The claim is read from
   `{SCOPE}__OIDC_EMAIL_CLAIM` if set, falling back to `email`, then
   `preferred_username` (when it contains `@`), then `emails[]` — every claim on
   that chain must be one the provider has verified and the user cannot edit.
-- Every contact with a matching address resolves, active or inactive. In the
-  parent-account model several matches become a choice of company; in the
-  associated-accounts model the oldest wins (`auth.md`). **Deactivating a
-  contact does not revoke portal access.** To cut someone off, block their
-  sign-in at the identity provider *and* change or clear the contact's
-  `emailaddress1` — otherwise a new account with the same address matches it
-  again.
+- Every active contact with a matching address resolves. In the parent-account
+  model several matches become a choice of company; in the associated-accounts
+  model the oldest wins (`auth.md`). **Deactivating a contact ends `/me`,
+  `/team` and per-person grants, but not the sign-in** (API 1.24.0 and later;
+  older deployments match inactive contacts too). The person keeps the scope's
+  defaults on `/all`. To cut someone off completely, block their sign-in at
+  the identity provider as well.
 - Neither is instant. A token already issued keeps working until it expires
   (about an hour), because the API checks only its signature, issuer, audience
   and expiry; contact matches and permissions are also cached for five minutes.
@@ -218,14 +228,19 @@ The server's guarantees end at the response.
   join or contact problem (`troubleshooting.md`). Switching the client to `/all`,
   or asking for an `:all` grant, either fails with 403 or shows the citizen
   everyone's rows.
-- **Error messages aren't for citizens.** A `message` can carry Dataverse's raw
-  error text and echo request input. Show a fixed message; log the real one.
+- **Error messages aren't for citizens.** The API's own messages echo request
+  input (field names, ids) and name permissions. From API 1.24.0, Dataverse's
+  raw error text is replaced by a generic message and a correlation id; older
+  deployments pass it through. Show a fixed message, and log the real one with
+  the correlation id.
 - **Realtime events are a prompt to refetch, not data.** An event's `recordId`
   says something changed; the scoped route decides whether this caller may see
-  it.
-- **Ids from the address bar are untrusted.** The SDK puts an id into the request
-  path as given and `fetchPage` sends the token to any URL it is handed —
-  `sdk.md`.
+  it. Every signed-in user of the scope receives every event (from API 1.24.0,
+  only that scope's events).
+- **Ids from the address bar are untrusted.** Check one is a GUID before using
+  it. SDK 1.24.0 and later encode ids into the path and keep `fetchPage` on the
+  API's origin. Older versions put an id into the path as given and send the
+  token to any URL `fetchPage` is handed — `sdk.md`.
 
 The `dataverse-portal` plugin turns these into rules for the code it generates,
 plus response headers and a go-live checklist.

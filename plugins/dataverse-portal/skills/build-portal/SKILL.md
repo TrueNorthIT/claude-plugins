@@ -64,12 +64,12 @@ For the URL, tier, and project name: state what you assumed in one sentence befo
 
 ## Version check
 
-**Expected plugin version: 0.16.0**
+**Expected plugin version: 0.16.1**
 
 Before doing any work, verify the installed plugin version. Read the plugin manifest at `../../.claude-plugin/plugin.json` (relative to this skill file) using the Read tool:
 
-- If the `version` field matches `0.16.0` — proceed.
-- If the `version` field is **older** — tell the user: "Your dataverse-portal plugin is v`<installed>` but this skill expects v0.16.0. Run `/plugin marketplace update truenorthit` and then `/reload-plugins` to get the latest version." Then stop.
+- If the `version` field matches `0.16.1` — proceed.
+- If the `version` field is **older** — tell the user: "Your dataverse-portal plugin is v`<installed>` but this skill expects v0.16.1. Run `/plugin marketplace update truenorthit` and then `/reload-plugins` to get the latest version." Then stop.
 - If the file cannot be read — warn the user but proceed.
 
 ## Workflow
@@ -446,7 +446,7 @@ Non-negotiable rules:
 - Files under 300 lines. Split components; extract hooks.
 - One concern per file.
 - No barrel exports.
-- **Always use the `@truenorth-it/dataverse-client` SDK. Never hand-roll fetch, never build OData query strings, never set the `Authorization` header yourself.** The SDK's scope clients (`client.me`, `client.team`, `client.all`) handle auth, query encoding, pagination, and error shapes. The single exception is invoking a custom API that isn't `publicInvoke`, which the SDK can't do yet — see *SDK usage*.
+- **Always use the `@truenorth-it/dataverse-client` SDK. Never hand-roll fetch, never build OData query strings, never set the `Authorization` header yourself.** The SDK's scope clients (`client.me`, `client.team`, `client.all`) handle auth, query encoding, pagination, and error shapes. That includes custom APIs: `client.me.invokeFunction` / `invokeAction` (SDK 1.24.0 and later) call one that isn't `publicInvoke` with the citizen's token — see *SDK usage*.
 - **Redirect flows only, never popup.** Popups get blocked, and on a phone a popup sign-in is worse than a redirect in every way. `loginRedirect`, `acquireTokenRedirect`, `logoutRedirect`.
 - Generated types come from `tables get`, never guesses.
 - **The rules under *Security — what the generated code must not do* are non-negotiable too.** In short: the tier the user chose and no wider; API text rendered as text; route params checked; nothing secret in `VITE_*`; citizens shown friendly errors, not the API's.
@@ -669,11 +669,11 @@ const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 if (!id || !GUID.test(id)) return <NotFound />;
 ```
 
-Likewise `fetchPage`: hand it the `page.next` the API returned and nothing else, because it sends the bearer token to whatever URL it is given.
+Likewise `fetchPage`: hand it the `page.next` the API returned and nothing else. SDK 1.24.0 and later refuse a URL off the API's origin; older versions send the bearer token to whatever URL they are given.
 
 **Nothing secret in `VITE_*`.** Vite inlines every `VITE_` variable the code reads into the bundle every visitor downloads. Read each one by name (`import.meta.env.VITE_API_SCOPE`): a dynamic `import.meta.env[name]` makes Vite inline the whole set, used or not. The admin connection key, MCP keys, service-principal secrets and Web PubSub or SignalR access keys never belong in a single-page app's environment. If a feature needs one, it needs a server.
 
-**Citizens see a friendly message, not the API's.** `ApiError.message` is the server's own text: written for developers, sometimes carrying Dataverse's raw error, sometimes echoing the request back. Map on status for the screen, and log the error itself where you catch it:
+**Citizens see a friendly message, not the API's.** `ApiError.message` is the server's own text: written for developers, naming permissions and echoing the request back. (From API 1.24.0, Dataverse's raw error text is replaced by a generic message and a correlation id; older deployments pass it on.) Map on status for the screen, and log the error itself where you catch it:
 
 ```ts
 // What a citizen reads. The no-contact 404 gets NoContactNotice instead (above).
@@ -889,27 +889,18 @@ Tier selection follows the user's `TIER` from the prompt:
 
 `client.me` is the only tier with `create`. There is no DELETE on the data tier at all.
 
-**The one place to call `fetch` yourself: a custom API that isn't public.** The SDK's `client.public.invokeFunction` / `invokeAction` send no token, so they only reach custom APIs published with `publicInvoke: true`. An action without it needs the citizen's token, a resolved contact and its `:invoke` permission — the `public` in `/public/actions/` changes nothing. Send the token yourself rather than asking for the action to be made public to suit the SDK:
+**Custom APIs that aren't public: `client.me.invokeFunction` / `invokeAction`** (SDK 1.24.0 and later). They send the citizen's token and selected company; the API checks a resolved contact and the `:invoke` permission. `client.public.invokeFunction` / `invokeAction` send no token, so they only reach custom APIs published with `publicInvoke: true`. Both hit `/public/actions/{name}` — the `public` in it changes nothing. Never ask for an action to be made public to suit the client:
 
 ```ts
-// A non-public custom API. getToken is useAuth's; the path is the only action
-// route there is, despite the "public" in it. recordId is for entity-bound
-// actions, where the API's ownership check reads the record from the URL.
-export async function invokeAction<T>(
-  getToken: () => Promise<string>,
-  name: string,
-  body: unknown,
-  recordId?: string,
-): Promise<T> {
-  const path = `/public/actions/${encodeURIComponent(name)}` + (recordId ? `/${encodeURIComponent(recordId)}` : "");
-  const res = await fetch(`${API_BASE_URL}/api/v2/${API_SCOPE}${path}`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${await getToken()}`, "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw Object.assign(new Error(`Action ${name} failed`), { status: res.status });
-  return (await res.json()) as T;
-}
+// A function (GET) — parameters in the query string. recordId is for an
+// entity-bound API, where its ownership check reads the record from the URL.
+const { data } = await client.me.invokeFunction<{ result: Slot[] }>("expand-calendar", {
+  recordId: calendarId,
+  params: { Start: start, End: end },
+});
+
+// An action (POST) — parameters in the JSON body.
+await client.me.invokeAction("send-reminder", { recordId: caseId, body: { Note: note } });
 ```
 
 For picklist labels, the SDK automatically includes `<field>_label` alongside `<field>` in list responses when the schema declares the field as `choice`. Use those fields directly in the UI — no extra lookup needed.
@@ -1032,7 +1023,7 @@ If the user wants team-tier or admin-tier access, expand the list accordingly (e
 - **`:all` is every row in the table**, for that person, through any portal on the scope. `write:all` also lets them point a writable lookup at any row. Grant it to named staff who need it, never to a test citizen "to make it work". A 403 on a citizen portal is answered by fixing the join or the tier, not by widening the grant.
 - **`:team` is only as narrow as the account model.** If contacts were bulk-loaded under one catch-all account, `team` is every citizen.
 - **A grant follows the email address.** Whoever can sign in with it holds it.
-- **To withdraw a grant, `contact-admin access revoke`** (it deletes the `cpa_apipermission` row; deactivating the row in Dataverse works too). Cutting someone off entirely is different: block their sign-in in Entra *and* change their contact's `emailaddress1`, or a new account with the same address matches it again. Deactivating their *contact* is not enough, because the API still matches inactive contacts by email. A token already issued keeps working until it expires, about an hour.
+- **To withdraw a grant, `contact-admin access revoke`** (it deletes the `cpa_apipermission` row; deactivating the row in Dataverse works too). Cutting someone off is different. From API 1.24.0, deactivating their *contact* stops it matching their sign-in: it ends `/me`, `/team` and their per-person grants, and they can't sign themselves up again. To also end the scope's defaults and keep them out entirely, block their sign-in in Entra. On an older deployment deactivating isn't enough, because inactive contacts still match: block the sign-in *and* change the contact's `emailaddress1`. A token already issued keeps working until it expires, about an hour.
 
 Use the `access` family throughout. `contact-admin auth0 grant-access` still runs but is **deprecated** — it is a thin alias for `access grant`. The rest of the `auth0` command family (`create-spa`, `list-spas`, `update-spa`, `sync-permissions`) has been **removed** as of contact-admin 0.2.0, and did not work before that either: the MCP tools they called were registered on no server and `sync-permissions` posted to a route that did not exist. That was true on `auth0`-provider scopes too, so do not reach for them there. SPA registration is an identity-provider job now, done in the Entra admin centre.
 

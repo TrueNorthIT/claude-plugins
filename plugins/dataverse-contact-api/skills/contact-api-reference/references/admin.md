@@ -11,7 +11,7 @@ The admin middleware accepts three things, tried in this order:
 | Order | Credential | Notes |
 |---|---|---|
 | 1 | `ADMIN_CONNECTION_KEY` | A pre-shared key, compared in constant time. It **short-circuits the role check entirely** — no Dataverse lookup happens. One key administers *every* scope on the deployment, so treat it as a deployment-wide secret |
-| 2 | An MCP key | HMAC-signed and scope-bound. Role checks are deferred to the individual tool |
+| 2 | An MCP key | HMAC-signed and scope-bound. Role checks are deferred to the individual tool. A key from `contact-admin login` (device code) carries the approver's object id, so those checks use that person's Dataverse roles. Keys minted before API 1.24.0 carry none, and fail them: log in again |
 | 3 | A workforce Entra token | Validated, then matched to a `systemuser` and checked against that user's **Dataverse security roles** |
 
 For the third, the qualifying roles are:

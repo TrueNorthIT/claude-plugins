@@ -61,26 +61,29 @@ For `whoami`, `companies` and `register` that mirrors the HTTP surface. For
 and `client.public` has no `create` method for it. If you need a public create,
 `fetch` it directly. `team` and `all` genuinely answer 405.
 
-**Custom APIs: `client.public.invokeFunction` and `invokeAction` send no
-token.** They can only reach custom APIs published with `publicInvoke: true`.
-One without it — the default — needs a bearer token, a resolved contact and its
-invoke permission, at the same `/public/actions/{name}` path. Call it with
-`fetch` and the token from your own `getToken`:
+**Custom APIs: call an authenticated one through `client.me`** (SDK 1.24.0
+and later). `client.me.invokeFunction` / `invokeAction` send the token and the
+selected company; the caller needs a resolved contact and the API's invoke
+permission. `client.public.invokeFunction` / `invokeAction` send no token, so
+they reach only custom APIs published with `publicInvoke: true`. Both use the
+same `/public/actions/{name}` path; the `public` in it decides nothing.
 
 ```ts
-// recordId only for an entity-bound action — that's where an ownershipCheck
-// takes the record from.
-const path = `/public/actions/${encodeURIComponent(name)}` +
-  (recordId ? `/${encodeURIComponent(recordId)}` : "");
-const res = await fetch(`${baseUrl}/api/v2/${scope}${path}`, {
-  method: "POST", // GET for a function, with parameters in the query string
-  headers: { Authorization: `Bearer ${await getToken()}`, "Content-Type": "application/json" },
-  body: JSON.stringify(input),
+// A function (GET): parameters go in the query string. recordId only for an
+// entity-bound API — that's where an ownershipCheck takes the record from.
+const { data } = await client.me.invokeFunction<{ result: Slot[] }>("expand-calendar", {
+  recordId: calendarId,
+  params: { Start: start, End: end },
 });
+
+// An action (POST): parameters go in the JSON body.
+await client.me.invokeAction("send-reminder", { recordId: caseId, body: { Note: "…" } });
 ```
 
-A 401 from the SDK on an action means this. It is not a reason to make the
-action public — `publicInvoke` makes it callable by anyone on the internet.
+A 401 from `client.public` on an action means it needs a token: use
+`client.me`. It is not a reason to make the action public — `publicInvoke`
+makes it callable by anyone on the internet. On an SDK older than 1.24.0, send
+the token yourself with `fetch` to the same path.
 
 **There is no `delete` method anywhere**, because there is no `DELETE` verb.
 Deactivation is an update to `statecode`. For `incident`, even that will not
@@ -161,7 +164,9 @@ try {
 
 Show `e.body.message` to a developer; do not show it to a citizen. A 403 body
 naming `case:write:team` is precise and also meaningless to the end user, and
-other messages carry Dataverse's raw error text or echo request input back.
+other messages echo request input back. (From API 1.24.0, Dataverse's raw error
+text is replaced by a generic message and a correlation id; older deployments
+pass it on.)
 `e.message` is the same text. Map on `e.status` for the screen, log the rest.
 
 ## Context helpers

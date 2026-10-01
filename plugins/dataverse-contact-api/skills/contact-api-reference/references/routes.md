@@ -64,8 +64,9 @@ invoke tier is also what an `ownershipCheck` verifies against — their contact,
 their account, or (at `all`) only that the record exists.
 
 The SDK's `client.public.invokeFunction` / `invokeAction` never send a token, so
-they can only call `publicInvoke` APIs. Call an authenticated one with `fetch` —
-`sdk.md` has the snippet.
+they can only call `publicInvoke` APIs. Call an authenticated one with
+`client.me.invokeFunction` / `invokeAction` (SDK 1.24.0 and later) — see
+`sdk.md`.
 
 **`GET` invokes a function, `POST` invokes an action**, and the handler checks
 this before anything else. Getting it the wrong way round is a 405 that names

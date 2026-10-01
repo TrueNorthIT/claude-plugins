@@ -13,7 +13,7 @@ points at the pattern, most of them written out in `build-portal`'s
 | `tier-team` | The page means the caller's colleagues' rows | It is a business portal and that is the point | — (informational) |
 | `route-param` | A `useParams` id reaches `client.*.get` / `update`. The SDK puts it into the request path unencoded, with the user's token | The param is only used for display or local filtering | Check it is a GUID first, and render "not found" if not |
 | `fetchpage-arg` | `fetchPage` is handed anything but the `page.next` the API returned (or a cursor derived from it) | The argument is `page.next` under another name — trace it | Pass `page.next` only. `fetchPage` sends the bearer token to any absolute URL |
-| `public-invoke` | The custom API isn't `publicInvoke`, so this call 401s | It is meant to be anonymous and read-only | `fetch` with the bearer token (build-portal, *SDK usage*). Never make an action public to suit the SDK |
+| `public-invoke` | The custom API isn't `publicInvoke`, so this call 401s | It is meant to be anonymous and read-only | `client.me.invokeFunction` / `invokeAction` (SDK 1.24.0+), which send the token (build-portal, *SDK usage*). Never make an action public to suit the client |
 | `company-key` | The portal switches company, and this key's data depends on the company | Identity-wide or public data: `whoami`, a public knowledge base | Put the selected company id in the key, or clear the cache on switch |
 | `persisted-cache` | Query data is written to storage | — | Don't persist it. On a shared computer it is the previous person's data |
 
@@ -55,7 +55,7 @@ points at the pattern, most of them written out in `build-portal`'s
 
 | id | Confirm | Not a finding when | Fix |
 |---|---|---|---|
-| `raw-error` | The API's `message` reaches a citizen's screen. It can carry Dataverse's raw error and echo input | Developer-only pages and admin tools | `friendlyError(err)` by status; log the original; keep `NoContactNotice` for the no-contact 404 |
+| `raw-error` | The API's `message` reaches a citizen's screen. It names permissions and echoes input (and on deployments before API 1.24.0, Dataverse's raw error) | Developer-only pages and admin tools | `friendlyError(err)` by status; log the original with its correlation id; keep `NoContactNotice` for the no-contact 404 |
 | `email-gate` | UI is shown or hidden by comparing an email address | It only hides links whose destinations need their own sign-in — still say it is cosmetic | Real staff features belong in a separate app, granted per person |
 | `debug-switch` | A `localStorage` flag turns on diagnostics | What it reveals is harmless | Build-time flag, or nothing in production |
 | `analytics` | Analytics or session replay loads before consent, or on signed-in pages without masking | Consent-gated, masked, and nothing personal is sent | Load after consent; mask personal fields; no session replay on signed-in pages |
