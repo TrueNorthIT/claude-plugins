@@ -162,19 +162,23 @@ gap — see `sdk.md` for `me.register()`.
 
 ### More than one match, and inactive matches
 
-The lookup returns every contact whose `emailaddress1` matches — oldest first,
-and **without filtering on `statecode`**. In the default parent-account model
-several matches become a choice of company (below), with the oldest as the
-default; in the associated-accounts model only the oldest is used. An inactive
-contact matches like any other, so deactivating a contact does not end that
-person's access. To cut someone off, block their sign-in at the identity
-provider *and* change the contact's address — a new account with the same
-address would otherwise match it again. Even then, a token already issued works
-until it expires, about an hour.
+The lookup returns every **active** contact whose `emailaddress1` matches,
+oldest first. In the default parent-account model several matches become a
+choice of company (below), with the oldest as the default; in the
+associated-accounts model only the oldest is used.
 
-Because the address is the join, it must be read-only on every route that
-exposes contacts. A caller who can write `emailaddress1` can move the key that
-decides who they are — see `security.md`.
+Deactivating a contact stops it matching (API 1.24.0 and later; older
+deployments match inactive contacts too). That ends the person's `/me` and
+`/team` access and their per-person grants, but not their sign-in: like any
+signed-in caller with no contact, they keep the scope's defaults on `/all`. To
+cut someone off completely, block their sign-in at the identity provider too.
+A token already issued works until it expires, about an hour, and contact
+matches are cached for five minutes.
+
+Because the address is the join, API 1.24.0 and later refuse any update that
+changes a contact's `emailaddress1`, whatever the route declares. Mark it
+read-only on every route that exposes contacts anyway, so a client never offers
+an edit that fails — see `security.md`.
 
 ## Checking a token
 

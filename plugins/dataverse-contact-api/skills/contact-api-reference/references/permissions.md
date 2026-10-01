@@ -151,12 +151,11 @@ without deleting it. That is the clean way to withdraw an individual grant
 (`contact-admin access revoke` deletes the row instead).
 
 A row belongs to a contact, and the contact is whoever signs in with its email
-address — so a grant follows the address, not a person. Contact matching does
-**not** filter on `statecode`: deactivating someone's contact leaves them signed
-in with the defaults and every grant still active. To cut a person off, block
-their sign-in at the identity provider *and* change the contact's address, so a
-new account with the same address can't match it again. A token already issued
-still works until it expires, about an hour.
+address — so a grant follows the address, not a person. Only active contacts
+match (API 1.24.0 and later), so deactivating someone's contact drops their
+per-person grants along with `/me` and `/team`. They stay signed in with the
+scope's defaults until their sign-in is blocked at the identity provider. A
+token already issued still works until it expires, about an hour.
 
 ### The 5-minute cache
 
