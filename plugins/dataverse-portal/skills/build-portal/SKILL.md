@@ -695,7 +695,7 @@ export function friendlyError(err: unknown): string {
 
 **A CAPTCHA in the page doesn't protect a public endpoint.** If the scope has a `publicCreate` route, anyone can call it without going through the portal. Rate limiting belongs at the edge, in front of the API: tell whoever runs the deployment.
 
-Before anyone else uses the portal, set the response headers and run the checks in `references/security.md` (relative to this skill's directory).
+Before anyone else uses the portal, set the response headers and run the checks in `references/security.md` (relative to this skill's directory). The `review-portal` skill in this plugin runs the same review against the code, and is the one to reach for on a portal this skill didn't generate.
 
 ### Code quality — the scaffolded code must teach
 
