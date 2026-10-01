@@ -36,6 +36,7 @@ like:
 | "explain what this Terraform exposes" | Route-by-route account of who can see what |
 | "who can see quotes in this config?" | That route's permission, its join path, anything widening it |
 | "does this PR widen access?" | A review focused on the permission surface |
+| "is this scope secure?" | The security pass — twelve checks, each traced to a line of your config, plus the negative test to run against the deployment |
 | "add a `casenotes` route to this repo" | The resource, its permission entry, and the `triggers`/`depends_on` wiring |
 
 ## What you need
@@ -127,6 +128,12 @@ contact-admin discover entity <logicalName> --url "$API_URL" --scope "$SCOPE" --
 - **Nothing here touches citizen data.** The provider manages configuration:
   route definitions and a `defaults.json` blob. It never reads, writes or
   deletes a Dataverse row.
+- **The API enforces exactly what the config says.** A route can plan, apply
+  and work in the portal and still leak. `default_permissions` reaches every
+  token the scope accepts, contact or not, so it never holds `all`. Every
+  column in `fields` can be selected. A column without `read_only` is the
+  caller's to write. Run the security pass in `references/patterns.md` before
+  every apply.
 - **`terraform destroy` is permanent for a route definition.** It unpublishes,
   recycles *and* permanently deletes — no restore point. The Dataverse table and
   its rows survive; the published schema only comes back via re-apply.
@@ -157,7 +164,7 @@ dataverse-terraform/
     ├── SKILL.md                      the workflow — adopt, build, explain
     ├── references/
     │   ├── provider-reference.md     every resource, data source and attribute
-    │   ├── patterns.md               row scoping, reverse joins, permissions
+    │   ├── patterns.md               row scoping, reverse joins, permissions, the security pass
     │   └── explaining.md             how to read a config back to a human
     └── scripts/export-scope.mjs      live scope → Terraform repo
 ```

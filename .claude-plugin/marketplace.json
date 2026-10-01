@@ -9,12 +9,12 @@
     {
       "name": "dataverse-contact-api",
       "source": "./plugins/dataverse-contact-api",
-      "description": "How the Dataverse Contact API works — the me/team/all/public tiers, the permission grammar, the non-OData query dialect, Entra External ID auth, the SDK, and how to triage a 401/403/404/empty list. The shared reference behind dataverse-portal and dataverse-terraform."
+      "description": "How the Dataverse Contact API works — the me/team/all/public tiers, the permission grammar, the non-OData query dialect, Entra External ID auth, the SDK, how to triage a 401/403/404/empty list, and the security boundary — what the server enforces and what a scope or client must get right. The shared reference behind dataverse-portal and dataverse-terraform."
     },
     {
       "name": "dataverse-portal",
       "source": "./plugins/dataverse-portal",
-      "description": "Scaffold a React + TypeScript + Tailwind SPA that signs citizens in with Microsoft Entra External ID (MSAL) and consumes the Dataverse Contact API, following the patterns from dataverse-example-case-portal."
+      "description": "Scaffold a React + TypeScript + Tailwind SPA that signs citizens in with Microsoft Entra External ID (MSAL) and consumes the Dataverse Contact API, and review an existing portal or PR for security and best-practice problems."
     },
     {
       "name": "create-gds-service",

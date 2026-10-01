@@ -11,7 +11,7 @@ marketplace installs nothing by itself.
 |---|---|
 | `dataverse-contact-api` | The factual reference for the Dataverse Contact API — the `me`/`team`/`all`/`public` tiers, the permission string grammar, the non-OData query dialect, Microsoft Entra External ID auth, the SDK, and 401/403/404 triage. The shared ground the two below assume. |
 | `dataverse-terraform` | Defines a portal backend — a *scope* — as Terraform: which Dataverse tables publish as routes, which fields each exposes, how rows scope back to the signed-in citizen, and the baseline permissions. Also exports an existing scope into HCL, and explains a config in plain English. |
-| `dataverse-portal` | Turns a single natural-language prompt ("build me a case portal", "scaffold a UI for the booking table in scope pilot") into a working citizen-facing React + TypeScript + Tailwind SPA, signed in with Microsoft Entra External ID via MSAL and wired to the Contact API. |
+| `dataverse-portal` | Turns a single natural-language prompt ("build me a case portal", "scaffold a UI for the booking table in scope pilot") into a working citizen-facing React + TypeScript + Tailwind SPA, signed in with Microsoft Entra External ID via MSAL and wired to the Contact API. Also reviews an existing portal or PR for security and best-practice problems, with the fix for each. |
 | `create-gds-service` | Scaffolds or removes a GOV.UK Design System service in a service-builder-flow repo — folder, pages, GDS-compliant copy, Dataverse row CLI, OpenAPI verification. |
 | `bigmac` | Offloads grunt work (summaries, first-pass code exploration, bulk classification, rough drafts) to the office Ollama server rather than to frontier tokens. |
 
@@ -33,9 +33,10 @@ Contact Portal API pillar.
 - **`plugins/<name>/.claude-plugin/plugin.json`** — one manifest per plugin
   (name, description, version). Versions are per plugin and move independently;
   the repo itself carries no version.
-- **`plugins/<name>/skills/<skill>/SKILL.md`** — the auto-invoked skill, one per
-  plugin. The description in its front matter is what makes Claude reach for it,
-  so it is written as trigger phrases rather than a summary.
+- **`plugins/<name>/skills/<skill>/SKILL.md`** — the auto-invoked skills, usually
+  one per plugin (`dataverse-portal` carries two: `build-portal` and
+  `review-portal`). The description in its front matter is what makes Claude
+  reach for it, so it is written as trigger phrases rather than a summary.
 - **`plugins/<name>/skills/<skill>/references/`** — the larger plugins split
   their detail into reference files the skill loads on demand
   (`dataverse-contact-api`: auth, routes, permissions, querying, sdk, admin,

@@ -43,6 +43,7 @@ like:
 | "what permission lets someone edit their colleagues' cases?" | `case:write:team`, and why `case:write` will never do it |
 | "how do I authenticate a portal against this?" | Entra External ID, discovery, and the email-claim contact match |
 | "how do I call this from TypeScript?" | `@truenorth-it/dataverse-client` — including the package name the docs get wrong |
+| "is this scope safe to put in front of citizens?" | What the server enforces on every request, what it takes on trust from the scope, and the abuse tests to run before go-live |
 
 ## What you need
 
@@ -71,6 +72,12 @@ The five that catch out almost everyone writing their first client:
   reads included, answers `403`. It is the usual reason a new scope arrives
   dead.
 
+And one for whoever designs the scope: **the API enforces exactly what the
+scope declares.** `all` in the baseline reaches every token the scope accepts,
+contact or not (and, unless the scope has its own audience, other portals'
+users); every column in `fields` can be selected; a column not marked
+`readOnly` is the caller's to write. `references/security.md` has the rest.
+
 ## Layout
 
 ```
@@ -85,7 +92,8 @@ dataverse-contact-api/
         ├── sdk.md                      @truenorth-it/dataverse-client
         ├── routes.md                   full route surface, envelopes, headers
         ├── troubleshooting.md          whoami-first triage
-        └── admin.md                    /_admin, contact-admin CLI, tokens
+        ├── admin.md                    /_admin, contact-admin CLI, tokens
+        └── security.md                 what the server enforces, what it trusts the scope with, abuse tests
 ```
 
 ## Related plugins

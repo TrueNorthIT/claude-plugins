@@ -53,6 +53,12 @@ The symptom is specific: sign-in succeeds, and every API call comes back
 `401 Token validation failed`, because the token was issued for the default
 scope's audience and this scope expects another.
 
+The inheritance cuts the other way too. Every scope without an audience of its
+own accepts the same tokens, so a user signed in to one portal can call any
+such scope on the deployment and receive its defaults. A scope's own
+`{SCOPE}__OIDC_AUDIENCE` is the only thing that keeps other portals' users out
+of it entirely — see `security.md`.
+
 There is a matching `/.well-known/oauth-protected-resource/_admin` for the admin
 plane, which is a **different audience and a different token**. Do not point a
 citizen-facing client at it.
@@ -113,6 +119,16 @@ the email in access tokens.
 
 That is a claims-mapping problem in the app registration, not an API problem.
 
+**Whatever that claim says, the API believes.** It verifies the token's
+signature, issuer, audience and expiry, and nothing else — no check that the
+address was ever verified. So the identity provider must only put verified
+addresses in the claim. Entra External ID's email sign-up verifies them; a
+federated or custom provider may not, and a workforce tenant lets its admins
+set a user's email to anything. That goes for every claim in the order above,
+not just the configured one: point `{SCOPE}__OIDC_EMAIL_CLAIM` only at a claim
+the provider has verified and the user cannot edit, and make sure the fallbacks
+are too.
+
 ### The consequence: a valid token with no contact
 
 If no contact matches, the token still authenticates. You get a session, a
@@ -144,6 +160,22 @@ Common causes: the contact's `emailaddress1` differs from the sign-in address
 created yet. Self-registration, where a scope enables it, exists to close that
 gap — see `sdk.md` for `me.register()`.
 
+### More than one match, and inactive matches
+
+The lookup returns every contact whose `emailaddress1` matches — oldest first,
+and **without filtering on `statecode`**. In the default parent-account model
+several matches become a choice of company (below), with the oldest as the
+default; in the associated-accounts model only the oldest is used. An inactive
+contact matches like any other, so deactivating a contact does not end that
+person's access. To cut someone off, block their sign-in at the identity
+provider *and* change the contact's address — a new account with the same
+address would otherwise match it again. Even then, a token already issued works
+until it expires, about an hour.
+
+Because the address is the join, it must be read-only on every route that
+exposes contacts. A caller who can write `emailaddress1` can move the key that
+decides who they are — see `security.md`.
+
 ## Checking a token
 
 ```bash
@@ -170,6 +202,12 @@ A contact can be associated with more than one company; `hasMultipleCompanies`
 tells you whether the UI needs a company switcher. The active company changes
 what `team` returns, and is selected with the `X-Company-Id` request header. In
 the SDK this is `withCompany()` — see `sdk.md`.
+
+The header chooses among companies the caller already has; it is not a way to
+act as anyone else. The API compares it with the companies resolved from the
+token's email, and refuses a value that isn't one of them — on `me`, `team` and
+writes, a 403 `Selected company does not belong to your account.` (or
+`Selected contact …` in the parent-account model).
 
 When `team` cannot work out which company applies, the 404 says so explicitly:
 

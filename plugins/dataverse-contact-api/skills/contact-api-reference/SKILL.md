@@ -1,6 +1,6 @@
 ---
 name: contact-api-reference
-description: How the Dataverse Contact API works, for anyone writing or debugging a client against it — the /api/v2/{scope}/{tier}/{table} URL shape, the me / team / all / public tiers, which verbs exist on which routes (there is no DELETE), the permission string grammar and what it does and does not imply, the non-OData query dialect (select / top / orderBy / filter / expand, cursor paging), Entra External ID auth and email-claim contact resolution, the @truenorth-it/dataverse-client SDK, and the whoami-first triage for 401 / 403 / 404 / an empty list. Use when the user asks how the Contact API works, what a route returns, why a call is 403 or 404 or empty, how to filter or page or sort, how to authenticate a portal against it, what permission string to grant, or how to call it from TypeScript.
+description: How the Dataverse Contact API works, for anyone writing or debugging a client against it — the /api/v2/{scope}/{tier}/{table} URL shape, the me / team / all / public tiers, which verbs exist on which routes (there is no DELETE), the permission string grammar and what it does and does not imply, the non-OData query dialect (select / top / orderBy / filter / expand, cursor paging), Entra External ID auth and email-claim contact resolution, the @truenorth-it/dataverse-client SDK, the whoami-first triage for 401 / 403 / 404 / an empty list, and the security boundary — what the server enforces on every request, what it takes on trust from a scope's config, and what is left to the client. Use when the user asks how the Contact API works, what a route returns, why a call is 403 or 404 or empty, how to filter or page or sort, how to authenticate a portal against it, what permission string to grant, or how to call it from TypeScript. Also use when they ask whether a scope or portal is secure, who can see or change what, what an anonymous or contactless caller can reach, or what to test before go-live.
 ---
 
 # contact-api-reference
@@ -23,7 +23,7 @@ not scaffold anything — see the sibling skills below for that.
 
 | Segment | What it selects |
 |---|---|
-| `{scope}` | The API partition — `default`, `helpdesk`, `fcc`, … Each scope has its own OIDC audience, its own Dataverse credentials and its own set of published tables. Two scopes on one deployment share nothing. |
+| `{scope}` | The API partition — `default`, `helpdesk`, `fcc`, … Each scope has its own published tables, baseline permissions and per-person grants. It *can* have its own OIDC audience and Dataverse credentials, but a scope that sets neither inherits the default scope's — including accepting its tokens (`references/auth.md`). |
 | `{tier}` | How rows are scoped to the caller: `me`, `team`, `all` or `public`. |
 | `{table}` | The route name the scope publishes — usually, but not always, the Dataverse logical name. |
 
@@ -63,7 +63,7 @@ What is *absent* here matters as much as what is present:
 | `GET`/`POST` | `/{scope}/public/actions/{name}` | `<name>:invoke` — **and a token and a resolved contact**, despite the `public` segment, unless the custom API sets `publicInvoke`. `GET` = function, `POST` = action |
 | `GET` | `/{scope}/me/whoami` | a valid token |
 | `GET` | `/{scope}/schema[?table=]`, `/{scope}/openapi.json` | none |
-| `GET` | `/{scope}/choices/{table}[/{field}]` | any permission on that subject |
+| `GET` | `/{scope}/choices/{table}[/{field}]` | none — unless the route sets `publicChoices: false`, then any permission on that subject |
 | `GET` | `/api/v2/_admin/scopes` | none — and note `_admin` comes **before** the scope |
 | `GET` | `/api/v2/_admin/{scope}/table-manager/defaults` | `admin:{scope}` — returns `{scope, defaults, effective}` |
 
@@ -95,6 +95,7 @@ Load on demand, not upfront. Each is self-contained.
 | Anything beyond the common routes — envelopes, headers, choices, changes, aggregate | `references/routes.md` |
 | A call is failing and you need to work out why | `references/troubleshooting.md` |
 | Administering scopes, tables or per-user grants | `references/admin.md` |
+| Judging whether a scope or client is safe — who can see or change what, what the server doesn't check, the tests to run before go-live | `references/security.md` |
 
 ## The five things that catch people out
 
@@ -117,6 +118,18 @@ you write a line of client code.
    → `references/permissions.md`
 5. **Permissions are cached for 5 minutes.** A grant you just made is not live
    yet. Do not debug through that window.
+
+## Where the security boundary is
+
+The API enforces row scoping, permissions and column write rules on every
+request, whatever the client does — but only as the scope declares them. So a
+scope can be published that works and leaks. `all` in the baseline reaches every
+token the scope accepts, including callers with no contact and — unless the
+scope has its own audience — users of other portals. Every column in `fields`
+can be selected by anyone who can read
+the route. A column not marked `readOnly` is the caller's to write. And nothing
+the browser does is a control. `references/security.md` sets out which side of
+the line each thing falls on, and the tests to run before go-live.
 
 ## First call against an unfamiliar deployment
 
