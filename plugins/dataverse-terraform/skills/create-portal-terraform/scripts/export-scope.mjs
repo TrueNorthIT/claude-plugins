@@ -177,7 +177,7 @@ function describeJoin(steps) {
     .join(" → ");
 }
 
-function emitTable(def, label, perms) {
+function emitTable(def, label, perms, signInColumn) {
   const L = [];
   const add = (s) => L.push(s);
 
@@ -205,7 +205,7 @@ function emitTable(def, label, perms) {
   if (Array.isArray(def.filters) && def.filters.length === 0) {
     add(`# filters = [] clears the statecode default: inactive rows are visible.`);
   }
-  for (const warning of securityWarnings(def)) add(`# CHECK: ${warning}`);
+  for (const warning of securityWarnings(def, signInColumn)) add(`# CHECK: ${warning}`);
 
   add(`resource "dataversecontact_table" "${label}" {`);
   add(`  scope                  = var.scope`);
@@ -309,9 +309,10 @@ function emitTable(def, label, perms) {
  * Lines in a route that the API applies exactly as written and that commonly
  * leak — surfaced in the route's banner so a reviewer of an adopted scope sees
  * them without reading the whole resource. Each is a prompt to check, not a
- * verdict: some are deliberate.
+ * verdict: some are deliberate. `signInColumn` is the contact column the scope
+ * matches tokens to: emailaddress1 unless its contact_email_column names another.
  */
-function securityWarnings(def) {
+function securityWarnings(def, signInColumn) {
   const warnings = [];
   const fields = Object.entries(def.fields ?? {});
   const writable = ([, f]) => !f.readOnly;
@@ -325,8 +326,8 @@ function securityWarnings(def) {
     );
   }
 
-  if (def.dataverseTable === "contacts" && def.fields?.emailaddress1 && !def.fields.emailaddress1.readOnly) {
-    warnings.push("emailaddress1 is writable — it is the sign-in key the API matches tokens to. Make it read_only.");
+  if (def.dataverseTable === "contacts" && def.fields?.[signInColumn] && !def.fields[signInColumn].readOnly) {
+    warnings.push(`${signInColumn} is writable — it is the sign-in key the API matches tokens to. Make it read_only.`);
   }
 
   for (const cd of def.createDefaults ?? []) {
@@ -375,6 +376,10 @@ function emitPermissionsSync(defaults, tableRefs, apiRefs) {
   add(`  scope = var.scope`);
   if (defaults.allowSelfRegister !== undefined) {
     add(`  allow_self_register = ${defaults.allowSelfRegister ? "true" : "false"}`);
+  }
+  if (defaults.contactEmailColumn) {
+    // Left out, a re-apply would put sign-in back on emailaddress1.
+    add(`  contact_email_column = ${hclString(defaults.contactEmailColumn)}`);
   }
 
   if (defaults.companyModel) {
@@ -772,6 +777,8 @@ const [tablesResp, apisResp, defaultsResp] = await Promise.all([
 
 const storedDefaults = defaultsResp.defaults ?? {};
 const storedPerms = storedDefaults.permissions ?? {};
+// The contact column the scope matches tokens to, as the API applies it.
+const signInColumn = (defaultsResp.effective ?? storedDefaults).contactEmailColumn ?? "emailaddress1";
 
 const allTables = tablesResp.definitions ?? [];
 const tables = allTables.filter((d) => d.source === "published");
@@ -813,6 +820,9 @@ blocks.push(
           (storedDefaults.join.requireMatch ? ", match required)" : ")")
         : "") +
       ".",
+    ...(signInColumn !== "emailaddress1"
+      ? [`# Sign-in: tokens are matched to contacts on ${signInColumn}, not emailaddress1.`]
+      : []),
     ...(publicRoutes.length
       ? [`# Public tier: ${publicRoutes.map((d) => d.routeName).join(", ")}.`]
       : []),
@@ -827,7 +837,8 @@ blocks.push(
     "  required_providers {",
     "    dataversecontact = {",
     '      source  = "TrueNorthIT/dataversecontact"',
-    '      version = ">= 1.1.1, < 2.0.0"',
+    // contact_email_column arrived in provider v1.2.0.
+    `      version = "${storedDefaults.contactEmailColumn ? ">= 1.2.0" : ">= 1.1.1"}, < 2.0.0"`,
     "    }",
     "  }",
     "}",
@@ -843,7 +854,7 @@ blocks.push(
 
 for (const def of tables) {
   const label = tfLabel(def.routeName);
-  blocks.push(emitTable(def, label, storedPerms));
+  blocks.push(emitTable(def, label, storedPerms, signInColumn));
   tableRefs.push(`dataversecontact_table.${label}`);
   imports.push([`dataversecontact_table.${label}`, def.routeName]);
 }

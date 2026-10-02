@@ -268,6 +268,7 @@ resource "dataversecontact_permissions_sync" "scope" {
 | `allow_self_register` | Default `false`. Lets a signed-in caller with no contact self-provision via `POST /me/register` — with the email from their token — and receive `default_permissions` at once. |
 | `company_model` | Nested **attribute** (`= { … }`, not a block). `strategy` is `parent-account` or `associated-accounts`; the latter takes `associated_accounts = { relationship, account_id_field, account_name_field, fetch_xml }`. |
 | `join` | Nested **attribute**. `strategy` (only `domain-list` today), `domain_field`, `require_match`. The `domain_field` column decides who may join each company: keep it staff-maintained, `read_only` (or absent) on every route, and free of shared or consumer domains — the API refuses only a short built-in list such as gmail.com. |
+| `contact_email_column` | **v1.2.0+.** The contact column people sign in with, as a logical name (`emailaddress2`, `cr123_portalemail`). Omitted, it's `emailaddress1`. Sign-in matches the token's email on it, `POST /me/register` and `create_contact` write the address there, and the API refuses updates that would change it. Lowercase logical names only, checked at plan. Fill it on existing contacts before switching — switching changes which contact each person signs in as. |
 | `triggers` | Map of strings — change any value to force a re-publish. |
 
 Computed: `id` (the scope name), `permission_count`.
@@ -471,6 +472,6 @@ translating a published schema by hand:
 | `parentTable` (`table`, `navigationProperty`) | `parent_table` (`table`, `navigation_property`) |
 | `expands[]` (`lookupField`, `relatedTable`, `fields[]`) | `expand` (`lookup_field`, `related_table`, `field` blocks) |
 | `fields{}` (`readOnly`, `lookupTable`, `valueField`, `bindField`) | `fields` map (`read_only`, `lookup_table`, `value_field`, `bind_field`) |
-| defaults: `permissions`, `allowSelfRegister`, `companyModel`, `join` | `default_permissions`, `allow_self_register`, `company_model`, `join` |
+| defaults: `permissions`, `allowSelfRegister`, `companyModel`, `join`, `contactEmailColumn` | `default_permissions`, `allow_self_register`, `company_model`, `join`, `contact_email_column` |
 
 `scripts/export-scope.mjs` does this translation for a whole scope.

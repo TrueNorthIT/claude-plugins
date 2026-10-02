@@ -258,6 +258,15 @@ The email the domain comes from is the token's email claim, which the API takes
 on trust. The identity provider must only issue verified addresses there; Entra
 External ID's email sign-up does.
 
+**Which contact column people sign in with.** The API matches the token's email
+to `contact.emailaddress1`. If the customer keeps the portal address in another
+column, set `contact_email_column = "emailaddress2"` (provider v1.2.0+): sign-in,
+`POST /me/register` and `create_contact` all use that column instead, and the
+API refuses any update that would change it. Keep it `read_only` on every route
+anyway. Fill it on existing contacts before switching — switching changes which
+contact each person signs in as, and anyone whose address isn't there yet stops
+being recognised.
+
 ## Field-level gotchas
 
 **Polymorphic navigation properties are not fields.** `customerid` on a case
@@ -278,7 +287,7 @@ choose read-only.
 
 | Column | Writable, it lets the caller… |
 |---|---|
-| `emailaddress1` on the contact route | move the key the API matches their sign-in to. With `write:team` or `write:all` on contacts, set a colleague's address to their own and sign in as them |
+| the sign-in column on the contact route (`emailaddress1`, or the scope's `contact_email_column`) | move the key the API matches their sign-in to. With `write:team` or `write:all` on contacts, set a colleague's address to their own and sign in as them |
 | the company link (`parentcustomerid`) | move themselves into another company's `team` |
 | any column a join step follows | change whose a row is |
 | the field a `create_default` binds | re-point it after create — the default applies on create only |
@@ -381,7 +390,7 @@ applying a new route, or a change to one, check:
 | 1 | No `all`, and no action ending in `:all`, in `default_permissions` | Every row, to anyone who can sign in |
 | 2 | `team` granted only where the account model really groups colleagues | Every citizen's rows, under a catch-all account |
 | 3 | `fields` holds only what the portal shows or writes | Internal columns, selectable by every reader |
-| 4 | Identity and ownership columns `read_only`: `emailaddress1`, the company link, join-step columns, `create_default` fields, `join.domain_field` | A caller changing who they are or whose a row is |
+| 4 | Identity and ownership columns `read_only`: the sign-in column (`emailaddress1` or `contact_email_column`), the company link, join-step columns, `create_default` fields, `join.domain_field` | A caller changing who they are or whose a row is |
 | 5 | Every writable lookup has a `lookup_table` this scope publishes | Lookups pointed at other people's rows, unchecked |
 | 6 | `default_select` not empty; every `expand` lists its fields, none revealing more than the parent should | Whole rows, or staff details, returned |
 | 7 | No `fetch_xml`, or one scoped by `{{contactid}}` / `{{accountid}}` | The same rows for every caller |
