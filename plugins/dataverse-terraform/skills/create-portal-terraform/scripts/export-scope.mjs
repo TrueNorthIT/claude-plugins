@@ -777,10 +777,19 @@ const [tablesResp, apisResp, defaultsResp] = await Promise.all([
 
 const storedDefaults = defaultsResp.defaults ?? {};
 const storedPerms = storedDefaults.permissions ?? {};
-// The contact column the scope matches tokens to. A deployment-wide default
-// (CONTACT_EMAIL_COLUMN on the API) isn't visible through the admin API, so a
-// scope relying on one is checked as if it were emailaddress1.
-const signInColumn = (defaultsResp.effective ?? storedDefaults).contactEmailColumn ?? "emailaddress1";
+// The contact column the scope matches tokens to, as the API reports it: the
+// scope's own setting, else the deployment's CONTACT_EMAIL_COLUMN, else
+// emailaddress1. An API too old to report it falls back to the scope's setting.
+if (defaultsResp.contactEmailColumn === null) {
+  console.warn(
+    "WARNING: the API couldn't work out this scope's sign-in column — its CONTACT_EMAIL_COLUMN " +
+      "setting isn't a valid column name, so nobody is being recognised. Fix it on the API.",
+  );
+}
+const signInColumn =
+  defaultsResp.contactEmailColumn ??
+  (defaultsResp.effective ?? storedDefaults).contactEmailColumn ??
+  "emailaddress1";
 
 const allTables = tablesResp.definitions ?? [];
 const tables = allTables.filter((d) => d.source === "published");
@@ -823,7 +832,10 @@ blocks.push(
         : "") +
       ".",
     ...(signInColumn !== "emailaddress1"
-      ? [`# Sign-in: tokens are matched to contacts on ${signInColumn}, not emailaddress1.`]
+      ? [
+          `# Sign-in: tokens are matched to contacts on ${signInColumn}, not emailaddress1` +
+            (storedDefaults.contactEmailColumn ? "." : " — the API's default, not set in this config."),
+        ]
       : []),
     ...(publicRoutes.length
       ? [`# Public tier: ${publicRoutes.map((d) => d.routeName).join(", ")}.`]
