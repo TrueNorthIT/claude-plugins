@@ -777,7 +777,9 @@ const [tablesResp, apisResp, defaultsResp] = await Promise.all([
 
 const storedDefaults = defaultsResp.defaults ?? {};
 const storedPerms = storedDefaults.permissions ?? {};
-// The contact column the scope matches tokens to, as the API applies it.
+// The contact column the scope matches tokens to. A deployment-wide default
+// (CONTACT_EMAIL_COLUMN on the API) isn't visible through the admin API, so a
+// scope relying on one is checked as if it were emailaddress1.
 const signInColumn = (defaultsResp.effective ?? storedDefaults).contactEmailColumn ?? "emailaddress1";
 
 const allTables = tablesResp.definitions ?? [];

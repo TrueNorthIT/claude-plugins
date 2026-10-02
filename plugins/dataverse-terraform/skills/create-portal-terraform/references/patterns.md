@@ -259,13 +259,14 @@ on trust. The identity provider must only issue verified addresses there; Entra
 External ID's email sign-up does.
 
 **Which contact column people sign in with.** The API matches the token's email
-to `contact.emailaddress1`. If the customer keeps the portal address in another
-column, set `contact_email_column = "emailaddress2"` (provider v1.2.0+): sign-in,
-`POST /me/register` and `create_contact` all use that column instead, and the
-API refuses any update that would change it. Keep it `read_only` on every route
-anyway. Fill it on existing contacts before switching — switching changes which
-contact each person signs in as, and anyone whose address isn't there yet stops
-being recognised.
+to `contact.emailaddress1`, or to the deployment's `CONTACT_EMAIL_COLUMN` if the
+API sets one. If this customer keeps the portal address in another column, set
+`contact_email_column = "emailaddress2"` (provider v1.2.0+), which wins over the
+deployment's default: sign-in, `POST /me/register` and `create_contact` all use
+that column instead, and the API refuses any update that would change it. Keep
+it `read_only` on every route anyway. Fill it on existing contacts before
+switching — switching changes which contact each person signs in as, and anyone
+whose address isn't there yet stops being recognised.
 
 ## Field-level gotchas
 
