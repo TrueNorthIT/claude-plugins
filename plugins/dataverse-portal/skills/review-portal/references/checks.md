@@ -17,6 +17,22 @@ points at the pattern, most of them written out in `build-portal`'s
 | `company-key` | The portal switches company, and this key's data depends on the company | Identity-wide or public data: `whoami`, a public knowledge base | Put the selected company id in the key, or clear the cache on switch |
 | `persisted-cache` | Query data is written to storage | — | Don't persist it. On a shared computer it is the previous person's data |
 
+## SDK use
+
+The SDK is how a portal stays on the API's current behaviour and catches a
+wrong column name at compile time. None of these leak data on their own, except
+`sdk-version`.
+
+| id | Confirm | Not a finding when | Fix |
+|---|---|---|---|
+| `sdk-version` | The installed SDK is below 1.24.0. Those versions put a record id into the path unencoded and let `fetchPage` send the token to any absolute URL | — | `npm install @truenorth-it/dataverse-client@latest`, then `typecheck` |
+| `sdk-behind` | A newer SDK is published (needs `--schema`, which allows network) | The project pins deliberately and says why | Upgrade to latest. Read the SDK README's changes for anything that moved |
+| `no-generated-types` | No file from `dataverse-client generate`, so table types are hand-written or `Record<string, unknown>` | — | Add `"generate:types": "dataverse-client generate --url <api> --scope <scope> --output src/dataverse.generated.ts"`, run it, commit the output, and replace the hand-written interfaces with the generated ones |
+| `no-generate-script` | The generated file exists but nothing regenerates it, so it drifts from the scope | It is regenerated in CI some other way | Add the `generate:types` script |
+| `sdk-untyped` | A `list` / `get` / `create` / `update` call has no row type, so the result is untyped and a cast usually follows | Throwaway or diagnostic code | `list<Case>(…)` with `QueryOptionsFor<CaseField>`; writes take `CaseCreateInput` / `CaseUpdateInput` |
+| `partial-write` | A write payload is `Partial<Row>`, so setting a read-only column compiles and the API drops it silently | The type is already narrowed to writable columns by hand. It still should be the generated input | `CaseCreateInput` / `CaseUpdateInput` from the generated file |
+| `hand-fetch` | A Contact API route is called with `fetch` rather than the SDK | An anonymous `POST /public/{table}` on a `publicCreate` table, which the SDK has no method for | The SDK's tier client. It handles the token, the company header, query encoding and errors |
+
 ## Rendering
 
 | id | Confirm | Not a finding when | Fix |

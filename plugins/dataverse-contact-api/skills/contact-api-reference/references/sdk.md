@@ -1,8 +1,19 @@
 # The TypeScript SDK
 
 ```bash
-npm install @truenorth-it/dataverse-client
+npm install @truenorth-it/dataverse-client@latest
+npx dataverse-client generate --url "$API_URL" --scope "$SCOPE" --output src/dataverse.generated.ts
 ```
+
+Two habits make everything below easier:
+
+- **Stay on the latest SDK.** It tracks the API: 1.24.0 added authenticated
+  custom-API calls and stopped sending the token to a crafted record id or
+  paging URL. Below 1.24.0 is a security finding, not just an old dependency.
+  Check with `npm ls @truenorth-it/dataverse-client` and compare it with
+  `npm view @truenorth-it/dataverse-client version`.
+- **Generate the types, don't write them.** See *Typed clients from the live
+  schema* at the end. Every example here passes a generated row type.
 
 > **The published documentation has a bug.** Several pages tell you to install
 > `@truenorth-it/dataverse-contact-api`. **That package does not exist.** If an
@@ -95,7 +106,7 @@ The SDK does not take the raw query string. It takes structured options and
 builds the URL:
 
 ```ts
-const page = await client.me.list("case", {
+const page = await client.me.list<Case>("case", {
   select: ["title", "ticketnumber", "createdon", "statuscode"],
   top: 25,
   orderBy: { field: "createdon", direction: "desc" },
@@ -219,12 +230,56 @@ Two inputs go out exactly as given, with the caller's token attached:
 ## Typed clients from the live schema
 
 ```bash
-npx dataverse-client generate --url "$API_URL" --scope "$SCOPE"
+npx dataverse-client generate --url "$API_URL" --scope "$SCOPE" --output src/dataverse.generated.ts
 ```
 
-Reads the scope's published schema and emits TypeScript types for its tables and
-fields. Worth doing early: it turns a misspelled field — which would otherwise be
-a runtime 400 with a "did you mean" hint — into a compile error.
+It reads the scope's public `/schema` and `/choices` (no token) and writes one
+file. Add it as a `generate:types` script, commit the output so a schema change
+shows up in the diff, and never edit it by hand. `--output` must point into a
+directory that exists. The command doesn't create one.
 
-Regenerate whenever the scope's tables change, and commit the output so a
-reviewer can see a schema change arrive in the diff.
+For each table it emits:
+
+| Export | What it's for |
+|---|---|
+| `Case` | The row: `list<Case>`, `get<Case>`. Choice columns come with their `_label` |
+| `CaseField` | Column-name union. `QueryOptionsFor<CaseField>` checks `select`, `filter.field` and `orderBy.field` at compile time, so a typo can't become a runtime 400 |
+| `CaseCreateInput` / `CaseUpdateInput` | Writable columns only. Read-only ones and the lookups `createDefaults` binds are left out |
+| `CaseStatuscode`, … | A const object per choice column (`CaseStatuscode.InProgress`), so filters don't use magic numbers |
+
+Names come from the route, not the entity: route `incident` gives `Incident`,
+`IncidentField` and so on, and `casenotes` gives `Casenotes`. On a Service
+Builder scope it also types each service's submitted form.
+
+```ts
+import type { QueryOptionsFor } from "@truenorth-it/dataverse-client";
+import {
+  CaseStatecode,
+  type Case,
+  type CaseField,
+  type CaseCreateInput,
+} from "./dataverse.generated";
+
+const open: QueryOptionsFor<CaseField> = {
+  select: ["incidentid", "ticketnumber", "title", "statuscode"],
+  filter: { field: "statecode", operator: "eq", value: CaseStatecode.Active },
+  orderBy: { field: "modifiedon", direction: "desc" },
+};
+const page = await client.me.list<Case>("case", open);
+
+const input: CaseCreateInput = { title: "VPN down", description: "Site B offline" };
+await client.me.create<Case>("case", { ...input });
+```
+
+The spread in the last line is for SDK 1.24.2 and older. Their `create` /
+`update` take `Record<string, unknown>`, which a generated interface doesn't
+satisfy under `strict` (TS2345, "Index signature … is missing"). Later
+versions accept `input` directly.
+
+An expand adds a nested object the row type doesn't describe. Extend the row
+type for that one call (`Case & { customerid_contact?: { fullname?: string } }`)
+rather than hand-writing a parallel interface. For a narrower view, use
+`Pick<Case, …>`.
+
+Regenerate whenever the scope's tables change. Stale types still run; you only
+lose the new columns' names.

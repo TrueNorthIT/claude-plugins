@@ -64,12 +64,12 @@ For the URL, tier, and project name: state what you assumed in one sentence befo
 
 ## Version check
 
-**Expected plugin version: 0.16.2**
+**Expected plugin version: 0.17.0**
 
 Before doing any work, verify the installed plugin version. Read the plugin manifest at `../../.claude-plugin/plugin.json` (relative to this skill file) using the Read tool:
 
-- If the `version` field matches `0.16.2` — proceed.
-- If the `version` field is **older** — tell the user: "Your dataverse-portal plugin is v`<installed>` but this skill expects v0.16.2. Run `/plugin marketplace update truenorthit` and then `/reload-plugins` to get the latest version." Then stop.
+- If the `version` field matches `0.17.0` — proceed.
+- If the `version` field is **older** — tell the user: "Your dataverse-portal plugin is v`<installed>` but this skill expects v0.17.0. Run `/plugin marketplace update truenorthit` and then `/reload-plugins` to get the latest version." Then stop.
 - If the file cannot be read — warn the user but proceed.
 
 ## Workflow
@@ -270,7 +270,7 @@ Why this schema matters:
 
 For the frontend, scope child records to their parent:
 ```ts
-const notes = await client.me.list<CaseNote>("casenotes", {
+const notes = await client.me.list<Casenotes>("casenotes", {
   filter: { field: "incidentid", operator: "eq", value: caseId },
 });
 ```
@@ -378,7 +378,9 @@ contact-admin tables get <routeName> --url "${API_URL}" --scope "${TARGET_SCOPE}
 curl -s "${API_URL}/api/v2/${TARGET_SCOPE}/choices/<routeName>"
 ```
 
-Cache these for TypeScript type generation and SDK `select` lists.
+Use these to choose the screens, `select` lists and expands. **Do not hand-write
+TypeScript types from them.** Step 7 generates the types from the same public
+schema.
 
 ### 7. Scaffold the frontend
 
@@ -394,7 +396,7 @@ portals run, so a developer moving between them meets the same shapes:
 | **TypeScript** | strict | |
 | **TanStack Query** | v5 | **all server state.** No `useEffect` fetching, no SWR, no Redux |
 | **MSAL** | v5, latest | `msal-browser` + `msal-react`, majors matched — Entra External ID sign-in |
-| **`@truenorth-it/dataverse-client`** | latest | every API call |
+| **`@truenorth-it/dataverse-client`** | **latest**, never below 1.24.0 | every API call, plus the generated types |
 | **React Router** | 7 | |
 | **Tailwind** | v4, via `@tailwindcss/vite` | |
 | **DOMPurify** | latest | **only** if the portal renders HTML from Dataverse — knowledge articles, email bodies. See *Security* below |
@@ -411,16 +413,36 @@ npm create vite@latest "$PROJECT_NAME" -- --template react-ts
 cd "$PROJECT_NAME"
 npm install
 npm install @azure/msal-browser@^5 @azure/msal-react@^5 react-router-dom \
-  @tanstack/react-query @truenorth-it/dataverse-client
+  @tanstack/react-query @truenorth-it/dataverse-client@latest
 npm install -D tailwindcss @tailwindcss/vite
 
 # The react-ts template ships no `typecheck` script — `npm run build` is the only
 # thing that runs tsc, and it also bundles. Add the standalone gate, because
 # step 9 depends on it to catch bad SDK query shapes before the user does.
 npm pkg set scripts.typecheck="tsc --noEmit"
+
+# Types come from the scope's live schema, never from hand-typed interfaces.
+# generate reads the public /schema and /choices endpoints (no token needed).
+npm pkg set scripts.generate:types="dataverse-client generate --url ${API_URL} --scope ${TARGET_SCOPE} --output src/dataverse.generated.ts"
+npm run generate:types
 ```
 
-Generate code based on the table schema from step 6. The file layout should be:
+**Say which SDK version you installed** (`npm ls @truenorth-it/dataverse-client`). If it is below 1.24.0, the registry served something stale. Stop and fix that before writing code: the custom-API and paging guidance below assumes 1.24.0 or later.
+
+**The generated file is the portal's type layer.** For every table in the scope, `src/dataverse.generated.ts` has:
+
+| Export | Use it for |
+|---|---|
+| `Case` | the row type — `client.me.list<Case>(…)`, `get<Case>(…)` |
+| `CaseField` | the column-name union, for `QueryOptionsFor<CaseField>` so a misspelt `select` / `filter` / `orderBy` field fails `typecheck` instead of returning a 400 |
+| `CaseCreateInput` / `CaseUpdateInput` | the writable columns only. Read-only and auto-bound columns are left out, so a form that tries to set `statuscode` fails to compile |
+| `CaseStatuscode`, `CasePrioritycode`, … | a const object per choice field (`CaseStatuscode.InProgress`), used in filters and comparisons instead of magic numbers |
+
+**The names follow the route name, not the Dataverse entity.** Route `case` gives `Case`, `casenotes` gives `Casenotes`, and a scope that publishes `incident` gives `Incident`, `IncidentField`, `IncidentStatuscode`. The examples below use `case`; check the generated file and use what it actually exports.
+
+Commit the file so a schema change shows up in the diff. Never edit it by hand. When the scope gains a column, run `npm run generate:types` again. If a screen needs a narrower shape, derive it (`Pick<Case, "title" | "ticketnumber">`) rather than declaring a parallel interface.
+
+Then generate the rest of the app. The file layout should be:
 
 ```
 src/
@@ -433,7 +455,7 @@ src/
 ├── lib/client.ts            ← useDataverseClient() hook
 ├── services/<table>Api.ts   ← SDK-based (fetchX, createX, updateX)
 ├── hooks/use<Table>.ts      ← React hook for data + state
-├── types/<table>.ts         ← types derived from tables get
+├── dataverse.generated.ts   ← `npm run generate:types` — committed, never hand-edited
 └── components/
     ├── SignInGate.tsx       ← sign-in wall + NoContactNotice
     ├── Header.tsx
@@ -448,7 +470,7 @@ Non-negotiable rules:
 - No barrel exports.
 - **Always use the `@truenorth-it/dataverse-client` SDK. Never hand-roll fetch, never build OData query strings, never set the `Authorization` header yourself.** The SDK's scope clients (`client.me`, `client.team`, `client.all`) handle auth, query encoding, pagination, and error shapes. That includes custom APIs: `client.me.invokeFunction` / `invokeAction` (SDK 1.24.0 and later) call one that isn't `publicInvoke` with the citizen's token — see *SDK usage*.
 - **Redirect flows only, never popup.** Popups get blocked, and on a phone a popup sign-in is worse than a redirect in every way. `loginRedirect`, `acquireTokenRedirect`, `logoutRedirect`.
-- Generated types come from `tables get`, never guesses.
+- **Every SDK call is typed from `dataverse.generated.ts`.** Reads pass the row type (`list<Case>`) and take `QueryOptionsFor<CaseField>`. Writes take `CaseCreateInput` / `CaseUpdateInput`, not `Partial<Case>`. Choice values come from the generated consts. No hand-written table interfaces, and no `as` casts on SDK results.
 - **The rules under *Security — what the generated code must not do* are non-negotiable too.** In short: the tier the user chose and no wider; API text rendered as text; route params checked; nothing secret in `VITE_*`; citizens shown friendly errors, not the API's.
 
 ### Entra wiring — the four files that must be right
@@ -707,33 +729,38 @@ The generated code is the developer's first contact with the SDK and the API. Ev
 // Fetch cases for the logged-in user. client.me automatically scopes
 // queries to records linked to the authenticated contact.
 // Switch to client.team for account-wide access, or client.all for admin.
-const cases = await client.me.list<Case>("case", {
+// QueryOptionsFor<CaseField> checks every field name against the generated
+// schema, so a typo fails `npm run typecheck` instead of returning a 400.
+const options: QueryOptionsFor<CaseField> = {
   select: ["incidentid", "ticketnumber", "title", "statuscode"],
   orderBy: { field: "modifiedon", direction: "desc" },
   top: 50,
-  // Add filters like this:
-  // filter: { field: "statuscode", operator: "eq", value: 1 },
+  // Add filters like this. Choice values come from the generated consts,
+  // not magic numbers:
+  // filter: { field: "statuscode", operator: "eq", value: CaseStatuscode.InProgress },
   //
   // Or combine multiple — an ARRAY of conditions plus filterLogic.
   // There is no { and: [...] } wrapper:
   // filter: [
-  //   { field: "prioritycode", operator: "eq", value: 1 },
-  //   { field: "statecode", operator: "eq", value: 0 },
+  //   { field: "prioritycode", operator: "eq", value: CasePrioritycode.High },
+  //   { field: "statecode", operator: "eq", value: CaseStatecode.Active },
   // ],
   // filterLogic: "and",   // "and" is the default; "or" is the alternative
-});
+};
+const cases = await client.me.list<Case>("case", options);
 ```
 
 **Show the next move in comments** — every service function should hint at what the developer will want to do next:
 
 ```ts
-export async function createCase(client: DataverseClient, input: Partial<Case>) {
+export async function createCase(client: DataverseClient, input: CaseCreateInput) {
   // Creates a case auto-bound to the caller's contact (via createDefaults
-  // in the table schema). No need to set customerid manually.
+  // in the table schema). That is why CaseCreateInput has no customerid:
+  // the generator leaves auto-bound and read-only columns out.
   //
   // To attach a note after creating:
   //   await createCaseNote(client, { incidentid: result.incidentid, notetext: "..." });
-  return client.me.create("case", input);
+  return client.me.create<Case>("case", { ...input });
 }
 ```
 
@@ -778,7 +805,7 @@ export function useCreateCase() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (input: Partial<Case>) => createCase(client, input),
+    mutationFn: (input: CaseCreateInput) => createCase(client, input),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["case"] });
     },
@@ -801,25 +828,21 @@ export function useCreateCase() {
 //       filter: { field: "title", operator: "contains", value: searchTerm }
 ```
 
-**Type files should document the shape** — explain what each field means and which are choice fields:
+**Types are generated, so document them where they are used.** `dataverse.generated.ts` already carries each column's display name and choice values as JSDoc, so hovering a field in the editor shows them. Do not add a `types/` folder that restates it. Put the explanation in the service and component comments, where it says why this screen picks these columns:
 
 ```ts
-export interface Case {
-  incidentid: string;
-  ticketnumber: string;          // Auto-generated, e.g. "CAS-01234-X7Y8Z9"
-  title: string;
-  statuscode: number;            // Choice field — use statuscode_label for display
-  statuscode_label?: string;     // e.g. "In Progress", "Resolved", "Cancelled"
-  prioritycode: number;          // Choice: 1=High, 2=Normal, 3=Low
-  prioritycode_label?: string;
-  createdon: string;             // ISO 8601 datetime
-  modifiedon: string;
-  // Expanded from the contact lookup:
-  customerid_contact?: {
-    fullname: string;
-    emailaddress1: string;
-  };
-}
+import type { Case } from "../dataverse.generated";
+
+// The list only needs these four columns. Pick from the generated row type
+// rather than declaring a second interface that drifts from the schema.
+// statuscode_label comes back with every choice column, already translated.
+export type CaseRow = Pick<Case, "incidentid" | "ticketnumber" | "title" | "statuscode_label">;
+
+// An expand adds a nested object the generated row type doesn't describe.
+// Extend the row type for that call only:
+export type CaseWithContact = Case & {
+  customerid_contact?: { fullname?: string; emailaddress1?: string };
+};
 ```
 
 The goal: a developer reads the generated code for 10 minutes and thinks "I know exactly how to add the next feature."
@@ -845,15 +868,25 @@ export function useDataverseClient(): DataverseClient {
 }
 
 // src/services/caseApi.ts — read
-import type { DataverseClient } from "@truenorth-it/dataverse-client";
-import type { Case } from "../types/case";
+import type { DataverseClient, QueryOptionsFor } from "@truenorth-it/dataverse-client";
+import type {
+  Case,
+  CaseField,
+  CaseCreateInput,
+  CaseUpdateInput,
+  Casenotes,
+  CasenotesField,
+} from "../dataverse.generated";
+
+// Typed options: "titel" here is a compile error, not a runtime 400.
+const CASE_LIST: QueryOptionsFor<CaseField> = {
+  select: ["incidentid", "ticketnumber", "title", "statuscode"],
+  orderBy: { field: "modifiedon", direction: "desc" },
+  top: 100,
+};
 
 export async function fetchCases(client: DataverseClient) {
-  return client.me.list<Case>("case", {
-    select: ["incidentid", "ticketnumber", "title", "statuscode"],
-    orderBy: { field: "modifiedon", direction: "desc" },
-    top: 100,
-  });
+  return client.me.list<Case>("case", CASE_LIST);
 }
 
 export async function fetchCase(client: DataverseClient, id: string) {
@@ -862,23 +895,28 @@ export async function fetchCase(client: DataverseClient, id: string) {
 
 // src/services/casenoteApi.ts — fetch notes for a case
 export async function fetchCaseNotes(client: DataverseClient, caseId: string) {
-  return client.me.list<CaseNote>("casenotes", {
+  const options: QueryOptionsFor<CasenotesField> = {
     filter: { field: "incidentid", operator: "eq", value: caseId },
     orderBy: { field: "createdon", direction: "desc" },
-  });
+  };
+  return client.me.list<Casenotes>("casenotes", options);
 }
 
-// src/services/caseApi.ts — write
-export async function createCase(client: DataverseClient, input: Partial<Case>) {
-  return client.me.create("case", input);
+// src/services/caseApi.ts — write. CreateInput/UpdateInput hold only the
+// writable columns, so setting statuscode or customerid fails to compile.
+// The spread is for SDK 1.24.2 and older, whose create/update parameter is
+// Record<string, unknown> and rejects a generated interface; it is harmless
+// on later versions.
+export async function createCase(client: DataverseClient, input: CaseCreateInput) {
+  return client.me.create<Case>("case", { ...input });
 }
 
 export async function updateCase(
   client: DataverseClient,
   id: string,
-  patch: Partial<Case>,
+  patch: CaseUpdateInput,
 ) {
-  return client.me.update("case", id, patch);
+  return client.me.update<Case>("case", id, { ...patch });
 }
 ```
 
@@ -907,9 +945,10 @@ For picklist labels, the SDK automatically includes `<field>_label` alongside `<
 
 For filters:
 ```ts
-// Single-field filter
+// Single-field filter. Choice values come from the generated consts:
+// CaseStatuscode.InProgress, not 1.
 const active = await client.me.list<Case>("case", {
-  filter: { field: "statuscode", operator: "eq", value: 1 },
+  filter: { field: "statuscode", operator: "eq", value: CaseStatuscode.InProgress },
 });
 
 // Composite filter — an array, combined by `filterLogic`.
@@ -917,8 +956,8 @@ const active = await client.me.list<Case>("case", {
 // `{ and: [...] }` shape, and passing one type-errors.
 const urgent = await client.me.list<Case>("case", {
   filter: [
-    { field: "prioritycode", operator: "eq", value: 1 },
-    { field: "statecode", operator: "eq", value: 0 },
+    { field: "prioritycode", operator: "eq", value: CasePrioritycode.High },
+    { field: "statecode", operator: "eq", value: CaseStatecode.Active },
   ],
   filterLogic: "and",   // default; use "or" for the alternative
 });
@@ -1094,6 +1133,9 @@ If `access grant` returns `found: false`, there is no Dataverse **contact** with
 | The `test-query` with a contact id that matches nobody returns rows | the route isn't filtering by caller — usually a FetchXML template without `{{contactid}}`, which replaces the join path. Fix it before anyone signs in |
 | On a shared PC the next person lands in the last person's session | nobody signed out. Closing the tab doesn't end the identity provider's session; only `logoutRedirect` does. Keep sign-out one click away, and use `sessionStorage` so the app's own tokens end with the tab |
 | Env change on Vercel with no effect | Vite inlined `VITE_*` at build time. Redeploy |
+| `typecheck` fails with a field name the API definitely has | `dataverse.generated.ts` is older than the scope. `npm run generate:types` and commit the diff |
+| `generate:types` fails with `ENOENT` on the output path | `generate` won't create directories. The output path must sit in a folder that exists (`src/`) |
+| `TS2345 … Index signature for type 'string' is missing` on `create` / `update` | SDK 1.24.2 or older rejects a generated `CreateInput` interface. Spread it (`{ ...input }`), or upgrade the SDK |
 
 ## Dependencies
 
@@ -1102,7 +1144,7 @@ This skill shells out via `Bash` for:
 - `curl` — `/.well-known` discovery + choices endpoint
 - `node -e` — JSON extraction from curl responses (portable; works on Git Bash, macOS, Linux)
 - `sed` — parsing the tenant GUID out of `idp_issuer`
-- `npm` / `npx` — scaffold and type-check
+- `npm` / `npx` — scaffold, `dataverse-client generate` (types), and type-check
 
 **Never use `jq`.** It isn't installed on Windows Git Bash or many corporate envs, and missing-command failures in mid-flow break the skill silently. Always reach for `node -e` when you need to parse JSON from a curl response.
 
