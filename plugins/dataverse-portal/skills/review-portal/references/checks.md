@@ -31,6 +31,7 @@ wrong column name at compile time. None of these leak data on their own, except
 | `no-generate-script` | The generated file exists but nothing regenerates it, so it drifts from the scope | It is regenerated in CI some other way | Add the `generate:types` script |
 | `sdk-untyped` | A `list` / `get` / `create` / `update` call has no row type, so the result is untyped and a cast usually follows | Throwaway or diagnostic code | `list<Case>(…)` with `QueryOptionsFor<CaseField>`; writes take `CaseCreateInput` / `CaseUpdateInput` |
 | `partial-write` | A write payload is `Partial<Row>`, so setting a read-only column compiles and the API drops it silently | The type is already narrowed to writable columns by hand. It still should be the generated input | `CaseCreateInput` / `CaseUpdateInput` from the generated file |
+| `unpaged-list` | Nothing in the portal follows `page.next`, so each list shows its first page only: 20 rows by default, 100 at most, with no error past that | The table can't outgrow one page (a handful of reference rows) and `top` covers it — say so in a comment | `useInfiniteQuery` with `fetchPage(page.next)` and a "Load more" control (build-portal, *Code quality*); `eachPage` for a bounded export |
 | `hand-fetch` | A Contact API route is called with `fetch` rather than the SDK | An anonymous `POST /public/{table}` on a `publicCreate` table, which the SDK has no method for | The SDK's tier client. It handles the token, the company header, query encoding and errors |
 
 ## Rendering

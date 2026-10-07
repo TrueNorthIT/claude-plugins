@@ -9,7 +9,8 @@ Two habits make everything below easier:
 
 - **Stay on the latest SDK.** It tracks the API: 1.24.0 added authenticated
   custom-API calls and stopped sending the token to a crafted record id or
-  paging URL. Below 1.24.0 is a security finding, not just an old dependency.
+  paging URL, and 1.25.0 accepts the generated write types. Below 1.24.0 is a
+  security finding, not just an old dependency.
   Check with `npm ls @truenorth-it/dataverse-client` and compare it with
   `npm view @truenorth-it/dataverse-client version`.
 - **Generate the types, don't write them.** See *Typed clients from the live
@@ -132,6 +133,33 @@ page.page.next;   // the next-page URL, or null on the last page
 The same constraints as the HTTP layer apply: `top` maxes at 100, at most ten
 filter conditions, and the operator must suit the field's type. See
 `querying.md`.
+
+### `list` returns one page — page the rest
+
+A `list` call is **one page**: 20 rows if you leave out `top`, and never more
+than 100. A `top` above 100 is cut to 100 with no error, so `top: 500` looks
+like it worked and drops the rest. Any list that can grow past one page has to
+follow `page.next`:
+
+```ts
+// Next page, e.g. behind a "Load more" button. Pass page.next exactly as the
+// API returned it: it carries the cursor and your query options.
+const first = await client.me.list<Case>("case", { top: 50 });
+const second = first.page.next ? await client.me.fetchPage<Case>(first.page.next) : null;
+
+// Every page, for a bounded set (an export, a dropdown's options):
+for await (const page of client.me.eachPage<Case>("case", { top: 100 })) {
+  rows.push(...page.data);
+}
+```
+
+In React, `useInfiniteQuery` fits it directly. The first page comes from
+`list`, later ones from `fetchPage(pageParam)`, and
+`getNextPageParam: (last) => last.page.next ?? null`. Don't drain every page
+into a screen with `eachPage`: the list grows with the data, and so does the
+wait.
+
+There is no offset paging. Don't count rows with `skip`; see `querying.md`.
 
 ### Paging and your query options
 
@@ -268,13 +296,13 @@ const open: QueryOptionsFor<CaseField> = {
 const page = await client.me.list<Case>("case", open);
 
 const input: CaseCreateInput = { title: "VPN down", description: "Site B offline" };
-await client.me.create<Case>("case", { ...input });
+await client.me.create<Case>("case", input);
 ```
 
-The spread in the last line is for SDK 1.24.2 and older. Their `create` /
-`update` take `Record<string, unknown>`, which a generated interface doesn't
-satisfy under `strict` (TS2345, "Index signature … is missing"). Later
-versions accept `input` directly.
+That last line needs SDK 1.25.0. Older versions type `create` / `update`'s
+payload as `Record<string, unknown>`, which a generated interface doesn't
+satisfy under `strict` (TS2345, "Index signature … is missing"). Upgrade
+rather than casting; `{ ...input }` works if you can't.
 
 An expand adds a nested object the row type doesn't describe. Extend the row
 type for that one call (`Case & { customerid_contact?: { fullname?: string } }`)

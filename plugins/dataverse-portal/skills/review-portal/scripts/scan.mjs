@@ -470,6 +470,19 @@ if (deps[SDK]) {
   }
 }
 
+// A list call is one page: 20 rows by default, 100 at most (more is clamped
+// silently). With nothing anywhere following page.next, every list stops there.
+const PAGING = /\bfetchPage\s*[<(]|\beachPage\s*[<(]|\.page\.next\b|\buseInfiniteQuery\b|\bhasNextPage\b/;
+if (!sources.some(({ text }) => PAGING.test(text))) {
+  for (const { f, text } of sources) {
+    text.split(/\r?\n/).forEach((line, i) => {
+      if (!isComment(line) && /\.(me|team|all|public)\.list\s*[<(]/.test(line)) {
+        add("unpaged-list", "medium", "Nothing in the portal pages — this list stops at 20 rows (100 with top) without saying so", f, i + 1, line);
+      }
+    });
+  }
+}
+
 for (const { f, text } of sources) {
   text.split(/\r?\n/).forEach((line, i) => {
     if (isComment(line)) return;

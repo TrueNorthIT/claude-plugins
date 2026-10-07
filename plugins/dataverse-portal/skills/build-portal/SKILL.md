@@ -396,7 +396,7 @@ portals run, so a developer moving between them meets the same shapes:
 | **TypeScript** | strict | |
 | **TanStack Query** | v5 | **all server state.** No `useEffect` fetching, no SWR, no Redux |
 | **MSAL** | v5, latest | `msal-browser` + `msal-react`, majors matched — Entra External ID sign-in |
-| **`@truenorth-it/dataverse-client`** | **latest**, never below 1.24.0 | every API call, plus the generated types |
+| **`@truenorth-it/dataverse-client`** | **latest**, never below 1.25.0 | every API call, plus the generated types |
 | **React Router** | 7 | |
 | **Tailwind** | v4, via `@tailwindcss/vite` | |
 | **DOMPurify** | latest | **only** if the portal renders HTML from Dataverse — knowledge articles, email bodies. See *Security* below |
@@ -427,7 +427,7 @@ npm pkg set scripts.generate:types="dataverse-client generate --url ${API_URL} -
 npm run generate:types
 ```
 
-**Say which SDK version you installed** (`npm ls @truenorth-it/dataverse-client`). If it is below 1.24.0, the registry served something stale. Stop and fix that before writing code: the custom-API and paging guidance below assumes 1.24.0 or later.
+**Say which SDK version you installed** (`npm ls @truenorth-it/dataverse-client`). If it is below 1.25.0, the registry served something stale. Stop and fix that before writing code: the examples below pass generated `CreateInput` types straight to `create`, which needs 1.25.0.
 
 **The generated file is the portal's type layer.** For every table in the scope, `src/dataverse.generated.ts` has:
 
@@ -470,6 +470,7 @@ Non-negotiable rules:
 - No barrel exports.
 - **Always use the `@truenorth-it/dataverse-client` SDK. Never hand-roll fetch, never build OData query strings, never set the `Authorization` header yourself.** The SDK's scope clients (`client.me`, `client.team`, `client.all`) handle auth, query encoding, pagination, and error shapes. That includes custom APIs: `client.me.invokeFunction` / `invokeAction` (SDK 1.24.0 and later) call one that isn't `publicInvoke` with the citizen's token — see *SDK usage*.
 - **Redirect flows only, never popup.** Popups get blocked, and on a phone a popup sign-in is worse than a redirect in every way. `loginRedirect`, `acquireTokenRedirect`, `logoutRedirect`.
+- **Every list pages.** A `list` call returns one page: 20 rows by default and never more than 100, because a larger `top` is cut to 100 without an error. A list screen that calls `list` once shows the first page and nothing else. Use `useInfiniteQuery`, following `page.next` with `fetchPage`, and give the screen a "Load more" button. Drain every page with `eachPage` only for a bounded set (a dropdown's options, an export), never for a screen that grows with the data. See *Code quality* for the hook.
 - **Every SDK call is typed from `dataverse.generated.ts`.** Reads pass the row type (`list<Case>`) and take `QueryOptionsFor<CaseField>`. Writes take `CaseCreateInput` / `CaseUpdateInput`, not `Partial<Case>`. Choice values come from the generated consts. No hand-written table interfaces, and no `as` casts on SDK results.
 - **The rules under *Security — what the generated code must not do* are non-negotiable too.** In short: the tier the user chose and no wider; API text rendered as text; route params checked; nothing secret in `VITE_*`; citizens shown friendly errors, not the API's.
 
@@ -760,38 +761,47 @@ export async function createCase(client: DataverseClient, input: CaseCreateInput
   //
   // To attach a note after creating:
   //   await createCaseNote(client, { incidentid: result.incidentid, notetext: "..." });
-  return client.me.create<Case>("case", { ...input });
+  return client.me.create<Case>("case", input);
 }
 ```
 
-**Include working examples in hook files** — show loading, error, empty states, and refresh. Every hook is TanStack Query; `useState` + `useEffect` fetching is not an option here, and a mutation invalidates rather than hand-patching the cache:
+**Include working examples in hook files** — show loading, error, empty states, refresh and paging. Every hook is TanStack Query; `useState` + `useEffect` fetching is not an option here, and a mutation invalidates rather than hand-patching the cache. A list hook is `useInfiniteQuery`, because the API never returns more than 100 rows at a time:
 
 ```ts
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 export function useCases() {
   const client = useDataverseClient();
-  const query = useQuery({
+  const query = useInfiniteQuery({
     // The key is the cache identity AND what mutations invalidate. Keep the
     // table name first and the view second, so ['case'] invalidates every view.
     queryKey: ["case", "list"],
-    queryFn: async () => {
-      // ApiError carries .status and .message straight from the API response,
-      // so the component can branch on 404 (no contact) vs 403 (no permission).
-      const res = await fetchCases(client);
-      return res.data ?? [];
-    },
+    // ApiError carries .status and .message straight from the API response,
+    // so the component can branch on 404 (no contact) vs 403 (no permission).
+    //
+    // The first page comes from list(); every later one from fetchPage() with
+    // the page.next URL the API returned. That URL keeps the cursor, select,
+    // filter and orderBy, so never rebuild it or count rows with skip.
+    queryFn: ({ pageParam }) =>
+      pageParam ? fetchCasesPage(client, pageParam) : fetchCases(client),
+    initialPageParam: null as string | null,
+    // page.next is null on the last page, which ends the paging.
+    getNextPageParam: (last) => last.page.next ?? null,
   });
 
   return {
-    cases: query.data ?? [],
+    cases: query.data?.pages.flatMap((p) => p.data) ?? [],
+    // Drive a "Load more" button with these.
+    hasMore: query.hasNextPage,
+    loadMore: query.fetchNextPage,
+    isLoadingMore: query.isFetchingNextPage,
     // `isSuccess`, not `!isLoading && !error` — see the note above. Only
     // isSuccess means the API answered, and only then is an empty list true.
     isSuccess: query.isSuccess,
     isPending: query.isPending,
     // Background refetch of data already on screen — show a subtle indicator,
     // not the loading skeleton.
-    isRefreshing: query.isFetching && !query.isPending,
+    isRefreshing: query.isFetching && !query.isPending && !query.isFetchingNextPage,
     error: query.error,
     refresh: query.refetch,
   };
@@ -816,9 +826,6 @@ export function useCreateCase() {
 **Components should be a starting point, not a dead end.** Include TODO comments that map out the obvious next features:
 
 ```tsx
-// TODO: Add pagination — the SDK returns @odata.nextLink when there
-//       are more results. Pass { top: 25 } and implement next/prev.
-//
 // TODO: Let the citizen edit the description — a useMutation calling
 //       updateCase(client, id, { description }), invalidating ['case'] on
 //       success. Status and priority are readOnly in the schema: staff change
@@ -879,14 +886,33 @@ import type {
 } from "../dataverse.generated";
 
 // Typed options: "titel" here is a compile error, not a runtime 400.
+// top is the page size: 20 if left out, and 100 at most (more is cut to 100
+// without an error). It is never "all rows" — useCases pages through the rest.
 const CASE_LIST: QueryOptionsFor<CaseField> = {
   select: ["incidentid", "ticketnumber", "title", "statuscode"],
   orderBy: { field: "modifiedon", direction: "desc" },
-  top: 100,
+  top: 50,
 };
 
+// The first page.
 export async function fetchCases(client: DataverseClient) {
   return client.me.list<Case>("case", CASE_LIST);
+}
+
+// Every later page. `next` must be the page.next the API returned: fetchPage
+// sends the token with it, and refuses a URL off the API's origin.
+export async function fetchCasesPage(client: DataverseClient, next: string) {
+  return client.me.fetchPage<Case>(next);
+}
+
+// Every row, for a bounded set only (an export, a short dropdown). eachPage
+// follows page.next until it runs out. Don't use it to fill a list screen.
+export async function fetchAllCases(client: DataverseClient) {
+  const rows: Case[] = [];
+  for await (const page of client.me.eachPage<Case>("case", CASE_LIST)) {
+    rows.push(...page.data);
+  }
+  return rows;
 }
 
 export async function fetchCase(client: DataverseClient, id: string) {
@@ -904,11 +930,8 @@ export async function fetchCaseNotes(client: DataverseClient, caseId: string) {
 
 // src/services/caseApi.ts — write. CreateInput/UpdateInput hold only the
 // writable columns, so setting statuscode or customerid fails to compile.
-// The spread is for SDK 1.24.2 and older, whose create/update parameter is
-// Record<string, unknown> and rejects a generated interface; it is harmless
-// on later versions.
 export async function createCase(client: DataverseClient, input: CaseCreateInput) {
-  return client.me.create<Case>("case", { ...input });
+  return client.me.create<Case>("case", input);
 }
 
 export async function updateCase(
@@ -916,7 +939,7 @@ export async function updateCase(
   id: string,
   patch: CaseUpdateInput,
 ) {
-  return client.me.update<Case>("case", id, { ...patch });
+  return client.me.update<Case>("case", id, patch);
 }
 ```
 
@@ -1135,7 +1158,8 @@ If `access grant` returns `found: false`, there is no Dataverse **contact** with
 | Env change on Vercel with no effect | Vite inlined `VITE_*` at build time. Redeploy |
 | `typecheck` fails with a field name the API definitely has | `dataverse.generated.ts` is older than the scope. `npm run generate:types` and commit the diff |
 | `generate:types` fails with `ENOENT` on the output path | `generate` won't create directories. The output path must sit in a folder that exists (`src/`) |
-| `TS2345 … Index signature for type 'string' is missing` on `create` / `update` | SDK 1.24.2 or older rejects a generated `CreateInput` interface. Spread it (`{ ...input }`), or upgrade the SDK |
+| `TS2345 … Index signature for type 'string' is missing` on `create` / `update` | SDK 1.24.2 or older rejects a generated `CreateInput` interface. Upgrade to latest (1.25.0+) |
+| A list shows exactly 20 (or 100) rows and nothing past them | It calls `list` once. That is one page: 20 by default, 100 at most. Page with `useInfiniteQuery` + `fetchPage(page.next)` |
 
 ## Dependencies
 
