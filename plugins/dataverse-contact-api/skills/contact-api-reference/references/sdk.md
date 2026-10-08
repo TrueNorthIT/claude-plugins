@@ -1,8 +1,20 @@
 # The TypeScript SDK
 
 ```bash
-npm install @truenorth-it/dataverse-client
+npm install @truenorth-it/dataverse-client@latest
+npx dataverse-client generate --url "$API_URL" --scope "$SCOPE" --output src/dataverse.generated.ts
 ```
+
+Two habits make everything below easier:
+
+- **Stay on the latest SDK.** It tracks the API: 1.24.0 added authenticated
+  custom-API calls and stopped sending the token to a crafted record id or
+  paging URL, and 1.25.0 accepts the generated write types. Below 1.24.0 is a
+  security finding, not just an old dependency.
+  Check with `npm ls @truenorth-it/dataverse-client` and compare it with
+  `npm view @truenorth-it/dataverse-client version`.
+- **Generate the types, don't write them.** See *Typed clients from the live
+  schema* at the end. Every example here passes a generated row type.
 
 > **The published documentation has a bug.** Several pages tell you to install
 > `@truenorth-it/dataverse-contact-api`. **That package does not exist.** If an
@@ -95,7 +107,7 @@ The SDK does not take the raw query string. It takes structured options and
 builds the URL:
 
 ```ts
-const page = await client.me.list("case", {
+const page = await client.me.list<Case>("case", {
   select: ["title", "ticketnumber", "createdon", "statuscode"],
   top: 25,
   orderBy: { field: "createdon", direction: "desc" },
@@ -122,28 +134,50 @@ The same constraints as the HTTP layer apply: `top` maxes at 100, at most ten
 filter conditions, and the operator must suit the field's type. See
 `querying.md`.
 
+### `list` returns one page — page the rest
+
+A `list` call is **one page**: 20 rows if you leave out `top`, and never more
+than 100. A `top` above 100 is cut to 100 with no error, so `top: 500` looks
+like it worked and drops the rest. Any list that can grow past one page has to
+follow `page.next`:
+
+```ts
+// Next page, e.g. behind a "Load more" button. Pass page.next exactly as the
+// API returned it: it carries the cursor and your query options.
+const first = await client.me.list<Case>("case", { top: 50 });
+const second = first.page.next ? await client.me.fetchPage<Case>(first.page.next) : null;
+
+// Every page, for a bounded set (an export, a dropdown's options):
+for await (const page of client.me.eachPage<Case>("case", { top: 100 })) {
+  rows.push(...page.data);
+}
+```
+
+In React, `useInfiniteQuery` fits it directly. The first page comes from
+`list`, later ones from `fetchPage(pageParam)`, and
+`getNextPageParam: (last) => last.page.next ?? null`. Don't drain every page
+into a screen with `eachPage`: the list grows with the data, and so does the
+wait.
+
+There is no offset paging. Don't count rows with `skip`; see `querying.md`.
+
 ### Paging and your query options
 
 `fetchPage(page.page.next)` and `eachPage(...)` follow the server's `next` URL
 exactly as given. From API 1.24.0 that URL carries your `select`, `filter`,
 `filterLogic` and `expand`, so paging just works.
 
-On an older deployment it carries only `top`, `cursor` and `orderBy`, and an
-`eachPage()` loop yields a correctly filtered first page and **unfiltered** ones
-after it, with nothing to signal the change. `list()` takes no `cursor` option,
-so the way round it is to append your own parameters to the `next` URL and hand
-that to `fetchPage()`, which sends whatever string you give it (harmless on 1.24.0
-and later too):
+**Pass `page.next` to `fetchPage()` untouched — don't append your query to
+it.** It already carries your query, so appending sends every parameter twice.
+Up to API 1.25.0 the API echoed both copies into the next link, so the URL grew
+each page until a `414 URI Too Long`, and a lookup's doubled `search` was
+dropped. `eachPage()` never appends, which is why it never hit this.
 
-```ts
-const qs = "&select=title,statuscode&filter=statecode%20eq%200";
-let page = await client.me.list<Case>("case", opts);
-while (page.page.next) {
-  page = await client.me.fetchPage<Case>(page.page.next + qs);
-}
-```
-
-See `querying.md` for the full list of what `page.next` drops.
+Only on a deployment older than 1.24.0 does `next` drop your query: an
+`eachPage()` loop then yields a correctly filtered first page and
+**unfiltered** ones after it, with nothing to signal the change. There, take
+the cursor from `next` and rebuild the URL from your page-1 query each time —
+see `querying.md`. Upgrading the API is the better fix.
 
 ## Errors
 
@@ -213,18 +247,62 @@ Two inputs go out exactly as given, with the caller's token attached:
   request path unencoded. An id taken from a route param (`/case/:id`) is
   whatever the address bar said — check it is a GUID before passing it on.
 - **Next-page URLs.** `fetchPage(url)` sends the bearer token to any absolute URL
-  it is handed. Give it the `page.next` the API returned (plus your re-appended
-  query options), never a URL from anywhere else.
+  it is handed. Give it the `page.next` the API returned, as returned, never a
+  URL from anywhere else.
 
 ## Typed clients from the live schema
 
 ```bash
-npx dataverse-client generate --url "$API_URL" --scope "$SCOPE"
+npx dataverse-client generate --url "$API_URL" --scope "$SCOPE" --output src/dataverse.generated.ts
 ```
 
-Reads the scope's published schema and emits TypeScript types for its tables and
-fields. Worth doing early: it turns a misspelled field — which would otherwise be
-a runtime 400 with a "did you mean" hint — into a compile error.
+It reads the scope's public `/schema` and `/choices` (no token) and writes one
+file. Add it as a `generate:types` script, commit the output so a schema change
+shows up in the diff, and never edit it by hand. `--output` must point into a
+directory that exists. The command doesn't create one.
 
-Regenerate whenever the scope's tables change, and commit the output so a
-reviewer can see a schema change arrive in the diff.
+For each table it emits:
+
+| Export | What it's for |
+|---|---|
+| `Case` | The row: `list<Case>`, `get<Case>`. Choice columns come with their `_label` |
+| `CaseField` | Column-name union. `QueryOptionsFor<CaseField>` checks `select`, `filter.field` and `orderBy.field` at compile time, so a typo can't become a runtime 400 |
+| `CaseCreateInput` / `CaseUpdateInput` | Writable columns only. Read-only ones and the lookups `createDefaults` binds are left out |
+| `CaseStatuscode`, … | A const object per choice column (`CaseStatuscode.InProgress`), so filters don't use magic numbers |
+
+Names come from the route, not the entity: route `incident` gives `Incident`,
+`IncidentField` and so on, and `casenotes` gives `Casenotes`. On a Service
+Builder scope it also types each service's submitted form.
+
+```ts
+import type { QueryOptionsFor } from "@truenorth-it/dataverse-client";
+import {
+  CaseStatecode,
+  type Case,
+  type CaseField,
+  type CaseCreateInput,
+} from "./dataverse.generated";
+
+const open: QueryOptionsFor<CaseField> = {
+  select: ["incidentid", "ticketnumber", "title", "statuscode"],
+  filter: { field: "statecode", operator: "eq", value: CaseStatecode.Active },
+  orderBy: { field: "modifiedon", direction: "desc" },
+};
+const page = await client.me.list<Case>("case", open);
+
+const input: CaseCreateInput = { title: "VPN down", description: "Site B offline" };
+await client.me.create<Case>("case", input);
+```
+
+That last line needs SDK 1.25.0. Older versions type `create` / `update`'s
+payload as `Record<string, unknown>`, which a generated interface doesn't
+satisfy under `strict` (TS2345, "Index signature … is missing"). Upgrade
+rather than casting; `{ ...input }` works if you can't.
+
+An expand adds a nested object the row type doesn't describe. Extend the row
+type for that one call (`Case & { customerid_contact?: { fullname?: string } }`)
+rather than hand-writing a parallel interface. For a narrower view, use
+`Pick<Case, …>`.
+
+Regenerate whenever the scope's tables change. Stale types still run; you only
+lose the new columns' names.

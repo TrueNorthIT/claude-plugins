@@ -1,5 +1,5 @@
 {
   "name": "dataverse-portal",
   "description": "Build and review portals for the Dataverse Contact API. build-portal scaffolds a React + TypeScript + Tailwind SPA that signs citizens in with Microsoft Entra External ID (MSAL), authenticating via the @truenorth-it/contact-admin CLI — no MCP registration needed. review-portal reviews an existing portal or PR for security and best-practice problems (tier misuse, HTML sinks, secrets in VITE_* and the bundle, session and sign-out, raw errors, headers, writable identity columns in the scope) and reports each with the fix. Invoke by saying 'build a case portal', 'build me a bookings portal in scope X', or 'review my portal' / 'is this portal safe to go live'.",
-  "version": "0.16.2"
+  "version": "0.17.0"
 }

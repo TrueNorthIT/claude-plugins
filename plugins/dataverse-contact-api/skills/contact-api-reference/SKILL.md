@@ -91,7 +91,7 @@ Load on demand, not upfront. Each is self-contained.
 | Deciding or debugging what a caller is allowed to do | `references/permissions.md` |
 | Writing a list query — filtering, sorting, paging, expanding | `references/querying.md` |
 | Wiring sign-in, or a token is being rejected | `references/auth.md` |
-| Calling the API from TypeScript | `references/sdk.md` |
+| Calling the API from TypeScript — always on the latest SDK, with types from `dataverse-client generate` | `references/sdk.md` |
 | Anything beyond the common routes — envelopes, headers, choices, changes, aggregate | `references/routes.md` |
 | A call is failing and you need to work out why | `references/troubleshooting.md` |
 | Administering scopes, tables or per-user grants | `references/admin.md` |

@@ -13,9 +13,27 @@ points at the pattern, most of them written out in `build-portal`'s
 | `tier-team` | The page means the caller's colleagues' rows | It is a business portal and that is the point | — (informational) |
 | `route-param` | A `useParams` id reaches `client.*.get` / `update`. The SDK puts it into the request path unencoded, with the user's token | The param is only used for display or local filtering | Check it is a GUID first, and render "not found" if not |
 | `fetchpage-arg` | `fetchPage` is handed anything but the `page.next` the API returned (or a cursor derived from it) | The argument is `page.next` under another name — trace it | Pass `page.next` only. `fetchPage` sends the bearer token to any absolute URL |
+| `fetchpage-append` | `fetchPage` is handed `page.next` with the portal's own query appended (`next + qs`, `` `${next}&select=…` ``) | The API is older than 1.24.0, whose `next` drops the query — and then the URL is rebuilt from the cursor each page, not appended to the last one | Pass `page.next` as returned. It already carries `select` / `filter` / `expand`; appending sent every parameter twice, and up to API 1.25.0 the URL grew each page until a `414 URI Too Long` |
 | `public-invoke` | The custom API isn't `publicInvoke`, so this call 401s | It is meant to be anonymous and read-only | `client.me.invokeFunction` / `invokeAction` (SDK 1.24.0+), which send the token (build-portal, *SDK usage*). Never make an action public to suit the client |
 | `company-key` | The portal switches company, and this key's data depends on the company | Identity-wide or public data: `whoami`, a public knowledge base | Put the selected company id in the key, or clear the cache on switch |
 | `persisted-cache` | Query data is written to storage | — | Don't persist it. On a shared computer it is the previous person's data |
+
+## SDK use
+
+The SDK is how a portal stays on the API's current behaviour and catches a
+wrong column name at compile time. None of these leak data on their own, except
+`sdk-version`.
+
+| id | Confirm | Not a finding when | Fix |
+|---|---|---|---|
+| `sdk-version` | The installed SDK is below 1.24.0. Those versions put a record id into the path unencoded and let `fetchPage` send the token to any absolute URL | — | `npm install @truenorth-it/dataverse-client@latest`, then `typecheck` |
+| `sdk-behind` | A newer SDK is published (needs `--schema`, which allows network) | The project pins deliberately and says why | Upgrade to latest. Read the SDK README's changes for anything that moved |
+| `no-generated-types` | No file from `dataverse-client generate`, so table types are hand-written or `Record<string, unknown>` | — | Add `"generate:types": "dataverse-client generate --url <api> --scope <scope> --output src/dataverse.generated.ts"`, run it, commit the output, and replace the hand-written interfaces with the generated ones |
+| `no-generate-script` | The generated file exists but nothing regenerates it, so it drifts from the scope | It is regenerated in CI some other way | Add the `generate:types` script |
+| `sdk-untyped` | A `list` / `get` / `create` / `update` call has no row type, so the result is untyped and a cast usually follows | Throwaway or diagnostic code | `list<Case>(…)` with `QueryOptionsFor<CaseField>`; writes take `CaseCreateInput` / `CaseUpdateInput` |
+| `partial-write` | A write payload is `Partial<Row>`, so setting a read-only column compiles and the API drops it silently | The type is already narrowed to writable columns by hand. It still should be the generated input | `CaseCreateInput` / `CaseUpdateInput` from the generated file |
+| `unpaged-list` | Nothing in the portal follows `page.next`, so each list shows its first page only: 20 rows by default, 100 at most, with no error past that | The table can't outgrow one page (a handful of reference rows) and `top` covers it — say so in a comment | `useInfiniteQuery` with `fetchPage(page.next)` and a "Load more" control (build-portal, *Code quality*); `eachPage` for a bounded export |
+| `hand-fetch` | A Contact API route is called with `fetch` rather than the SDK | An anonymous `POST /public/{table}` on a `publicCreate` table, which the SDK has no method for | The SDK's tier client. It handles the token, the company header, query encoding and errors |
 
 ## Rendering
 

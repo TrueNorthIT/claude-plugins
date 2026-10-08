@@ -1,6 +1,6 @@
 ---
 name: review-portal
-description: Review an existing React portal built on the Dataverse Contact API — a whole repo or a pull request — for security and best-practice problems, and report each with severity, file:line and the fix. Covers which tier the code calls (client.all in a citizen portal), HTML rendering and links built from data, secrets in VITE_* variables, .env files and the built bundle, MSAL token cache and sign-out, raw API errors shown to citizens, route params passed to the SDK, TanStack Query keys under a company switcher, analytics and session replay, security headers / CSP, and — from the scope's public schema — writable identity columns and public routes. Use when the user asks to review, audit, security-check or go-live-check a portal, React app or SPA that uses @truenorth-it/dataverse-client or the Contact API, e.g. "review my portal", "is this portal safe to go live", "security review this React app", "check this portal PR", "bring this portal up to the dataverse-portal standard". Report-only unless the user asks for fixes.
+description: Review an existing React portal built on the Dataverse Contact API — a whole repo or a pull request — for security and best-practice problems, and report each with severity, file:line and the fix. Covers which tier the code calls (client.all in a citizen portal), HTML rendering and links built from data, secrets in VITE_* variables, .env files and the built bundle, MSAL token cache and sign-out, raw API errors shown to citizens, route params passed to the SDK, lists that never page past the 100-row limit, SDK version and generated types (dataverse-client generate, typed queries and writes), TanStack Query keys under a company switcher, analytics and session replay, security headers / CSP, and — from the scope's public schema — writable identity columns and public routes. Use when the user asks to review, audit, security-check or go-live-check a portal, React app or SPA that uses @truenorth-it/dataverse-client or the Contact API, e.g. "review my portal", "is this portal safe to go live", "security review this React app", "check this portal PR", "bring this portal up to the dataverse-portal standard". Report-only unless the user asks for fixes.
 ---
 
 # review-portal
@@ -21,7 +21,7 @@ user asks for changes.
 
 - **Reviewing code:** nothing. No credentials, no network.
 - **The schema check (optional):** network, nothing else. It reads the scope's
-  published schema, which is public.
+  published schema, which is public, and the SDK's latest version from npm.
 - **The scope's negative test:** an admin credential. Recommend it; run it only
   if the user supplies one.
 
@@ -71,6 +71,9 @@ is a false positive, and the fix. The judgements that come up most:
   secret in the bundle.
 - **`route-param`.** Does the id actually reach `client.*.get` / `update`
   unchecked?
+- **`no-generated-types`, `sdk-untyped`, `partial-write`.** These come
+  together. Report them as one finding, "types aren't generated from the
+  scope", not one row per call site.
 
 Drop false positives without comment. A report padded with non-issues teaches
 people to skim it.
@@ -133,8 +136,8 @@ Severity:
 | | Means | Typical |
 |---|---|---|
 | **High** | Someone else's data or session is at risk, or a secret is exposed | HTML sink on API data; `client.all` in a citizen flow; a secret in `VITE_*` or the bundle; an email address sent to analytics; a writable `emailaddress1` or company link in the scope; an empty default select |
-| **Medium** | A defence is missing, or detail leaks | No CSP; raw API errors shown to citizens; `localStorage` token cache; no sign-out; route params unchecked; a dynamic `import.meta.env` read; analytics without consent; a tracked `.env`; a persisted query cache |
-| **Low** | Hygiene and defence in depth | Popup sign-in; links from data on React < 19; `team` calls to confirm; debug switches; `.gitignore` gaps; status columns writable |
+| **Medium** | A defence is missing, or detail leaks — or data silently goes missing | SDK below 1.24.0; lists that never page; no CSP; raw API errors shown to citizens; `localStorage` token cache; no sign-out; route params unchecked; a dynamic `import.meta.env` read; analytics without consent; a tracked `.env`; a persisted query cache |
+| **Low** | Hygiene and defence in depth | SDK behind latest; no generated types; untyped SDK calls or `Partial<Row>` writes; popup sign-in; links from data on React < 19; `team` calls to confirm; debug switches; `.gitignore` gaps; status columns writable |
 
 Quote the line behind each finding, and give the smallest fix. The patterns
 are in `build-portal`: `SafeHtml`, `safeHref`, the GUID check, `friendlyError`,
