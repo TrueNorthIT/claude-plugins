@@ -226,6 +226,12 @@ const LINE_RULES = [
     re: /fetchPage(?:<[^>]*>)?\(\s*(?![^)]*\b(next|pageParam)\b)[^)\s]/,
   },
   {
+    id: "fetchpage-append",
+    severity: "low",
+    title: "Query appended to page.next — it already carries it; up to API 1.25.0 the URL grew each page until a 414",
+    re: /fetchPage(?:<[^>]*>)?\(\s*(?:[^)]*\bnext\b\s*\+|`\$\{[^}]*\bnext\b[^}]*\}[^`]+`)/,
+  },
+  {
     id: "public-invoke",
     severity: "low",
     title: "SDK invoke on client.public — sends no token, so only reaches publicInvoke APIs",

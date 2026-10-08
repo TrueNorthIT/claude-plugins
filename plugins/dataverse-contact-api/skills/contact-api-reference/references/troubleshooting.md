@@ -45,7 +45,8 @@ below are indistinguishable from each other at the call site and obvious in
 | `404 No company account is available for team access…` | No account on the contact, or no `X-Company-Id` selected | The message names both models; supply whichever input is missing |
 | `404` on one `{id}` that you know exists | The row exists but the join does not reach you at that tier | Try the same id at `team`, then `all`. If `all` finds it, it is a join question, not a data question |
 | `400 Invalid pagination state. Use the cursor from 'page.next'…` | A `skip` without a cursor | Take the cursor from `page.next`; there is no offset paging |
-| Page 2 returns rows page 1 filtered out, or is missing fields page 1 had | Before API 1.24.0, `page.next` carries only `top`, `cursor` and `orderBy` | Upgrade, or re-append your `select` / `filter` / `filterLogic` / `expand` to it — see `querying.md` |
+| Page 2 returns rows page 1 filtered out, or is missing fields page 1 had | Before API 1.24.0, `page.next` carries only `top`, `cursor` and `orderBy` | Upgrade. Until then, rebuild each page's URL from the cursor plus your page-1 query — see `querying.md` |
+| `414 URI Too Long` a few pages into a list, or page 2 of a lookup ignores `search` | The client appends its own query to `page.next`, which already carries it. Up to API 1.25.0 every repeat was echoed back, so the URL grew each page | Follow `page.next` as given. Don't append to it |
 | `400 Cannot filter by unknown field …` | A misspelled field in `select` / `filter` / `orderBy` / `expand` | Take the "did you mean" suggestion, or list the real fields with `/{scope}/schema?table={table}` |
 | `400 Operator 'contains' is not valid for choice field …` | Wrong operator for the field's type | The message names the allowed set |
 | `405 Method not allowed` on a create | `POST` to `team` or `all` | Create is `me`-only. Do not read `Access-Control-Allow-Methods` — it advertises the POST the route just refused |
@@ -56,7 +57,7 @@ below are indistinguishable from each other at the call site and obvious in
 | `test-query --tier me` with a contact id that matches nobody returns rows | The route isn't filtering by caller — usually a `fetchXml` template without `{{contactid}}`, which replaces the join path | Fix the route before anyone uses it. See `security.md` |
 | Sign-in fails at the Microsoft page, never reaches the app | `AADSTS50011` — redirect URI mismatch, usually a trailing slash | Make the app registration and the client config byte-identical. No trailing slash |
 | A list returns `200` and **zero rows**, no error | The join path does not reach any rows | See below — this is its own diagnosis |
-| Only 100 rows come back when you asked for 500 | `top` is clamped to 100 silently, not rejected | Page with `page.next`, re-appending your query options as above |
+| Only 100 rows come back when you asked for 500 | `top` is clamped to 100 silently, not rejected | Page with `page.next`, followed as given |
 | `_label` fields missing | `X-Data-Source: lake` — lake-backed routes get no label enrichment | Read the raw value, or serve the route from live Dataverse |
 
 ## The empty list: two very different failures

@@ -167,22 +167,17 @@ There is no offset paging. Don't count rows with `skip`; see `querying.md`.
 exactly as given. From API 1.24.0 that URL carries your `select`, `filter`,
 `filterLogic` and `expand`, so paging just works.
 
-On an older deployment it carries only `top`, `cursor` and `orderBy`, and an
-`eachPage()` loop yields a correctly filtered first page and **unfiltered** ones
-after it, with nothing to signal the change. `list()` takes no `cursor` option,
-so the way round it is to append your own parameters to the `next` URL and hand
-that to `fetchPage()`, which sends whatever string you give it (harmless on 1.24.0
-and later too):
+**Pass `page.next` to `fetchPage()` untouched — don't append your query to
+it.** It already carries your query, so appending sends every parameter twice.
+Up to API 1.25.0 the API echoed both copies into the next link, so the URL grew
+each page until a `414 URI Too Long`, and a lookup's doubled `search` was
+dropped. `eachPage()` never appends, which is why it never hit this.
 
-```ts
-const qs = "&select=title,statuscode&filter=statecode%20eq%200";
-let page = await client.me.list<Case>("case", opts);
-while (page.page.next) {
-  page = await client.me.fetchPage<Case>(page.page.next + qs);
-}
-```
-
-See `querying.md` for the full list of what `page.next` drops.
+Only on a deployment older than 1.24.0 does `next` drop your query: an
+`eachPage()` loop then yields a correctly filtered first page and
+**unfiltered** ones after it, with nothing to signal the change. There, take
+the cursor from `next` and rebuild the URL from your page-1 query each time —
+see `querying.md`. Upgrading the API is the better fix.
 
 ## Errors
 
@@ -252,8 +247,8 @@ Two inputs go out exactly as given, with the caller's token attached:
   request path unencoded. An id taken from a route param (`/case/:id`) is
   whatever the address bar said — check it is a GUID before passing it on.
 - **Next-page URLs.** `fetchPage(url)` sends the bearer token to any absolute URL
-  it is handed. Give it the `page.next` the API returned (plus your re-appended
-  query options), never a URL from anywhere else.
+  it is handed. Give it the `page.next` the API returned, as returned, never a
+  URL from anywhere else.
 
 ## Typed clients from the live schema
 

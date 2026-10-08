@@ -121,12 +121,19 @@ A list response carries the next page ready-made:
 **From API 1.24.0, `page.next` carries your query.** Alongside `top`,
 `cursor` and `orderBy` it repeats the `select`, `expand`, `filter` (every
 one), `filterLogic`, `created`, `modified` and `search` you sent, so follow it
-as given. Re-appending them anyway is harmless: an identical repeated filter is
-merged, not counted twice.
+as given.
+
+**Don't append your query to `page.next`.** It is already there, so appending
+sends every parameter twice. Up to API 1.25.0 the API echoed both copies into
+the next `next`, and the client added another, so the URL grew every page until
+the request failed with `414 URI Too Long` — a 7-field `select` got there by
+page 9. A lookup's `search` sent twice was read as no search at all, so page 2
+came back unsearched. Later versions carry each parameter once, but nothing is
+gained by appending: pass `page.next` on untouched.
 
 **On an older deployment it carries only `top`, `cursor` and `orderBy`:**
 
-| In `page.next` | Dropped — you must re-append it |
+| In `page.next` | Dropped — re-send it from your page-1 query |
 |---|---|
 | `top`, `cursor`, `orderBy` | `select`, `filter`, `filterLogic`, `expand`, `created`, `modified` |
 
@@ -137,8 +144,10 @@ what you get is your own rows that page 1's filter excluded, carrying whatever
 fields the route defaults to. Closed cases reappearing halfway down an "open
 cases" list is the classic sighting.
 
-On such a deployment, take `cursor` and `top` from `next`, keep the `orderBy`
-it hands back, and re-send everything else exactly as you sent it on page 1:
+Only on such a deployment, take `cursor` and `top` from `next`, keep the
+`orderBy` it hands back, and re-send everything else exactly as you sent it on
+page 1. Build each request fresh from those parts — don't keep appending to
+whatever URL the last page gave you:
 
 ```
 # page 1
