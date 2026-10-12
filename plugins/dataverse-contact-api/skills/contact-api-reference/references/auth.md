@@ -258,6 +258,6 @@ enquiry form, in effect. Anyone on the internet can then insert rows into that
 table, so it is a decision to make per table and defend, not a default. Every
 other `public` write is a 405.
 
-Note what this does *not* change: `/{scope}/public/actions/{name}` still needs a
-token and a resolved contact unless the custom API sets `publicInvoke` — see
-`routes.md`.
+Custom APIs are the same: `/{scope}/public/actions/{name}` is anonymous only for
+an API published on the `public` tier. Others answer on `me`, `team` or `all`
+with a token — see `routes.md`.

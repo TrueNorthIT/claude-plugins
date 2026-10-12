@@ -183,3 +183,6 @@ dataverse-terraform/
 | Everyone gets `403 … not set up for online access` (`contact_not_enabled`) | Their contacts don't meet the scope's `contact_filters` — set the column on the contacts, or loosen the filter |
 | Nobody is recognised after setting `contact_email_column` | Existing contacts don't have their address in that column yet — fill it, or remove the setting |
 | A custom API shows a `# whitespace changes` diff | Benign. State holds the API's compact JSON, the file is pretty-printed; one apply settles it |
+| Publishing a custom API fails with a 400 about `target`, `recordIdPath`, `callerParameters` or `unchecked` | The API's rules for tiered custom APIs (API 1.26.0+): a bound API's target must be the table Dataverse binds it to, and a record parameter must be checked or marked `unchecked`. The message names the fix |
+| Publishing a custom API fails with a 400 saying the definition's `isFunction` / `bindingType` / bound table differs from Dataverse | Those are read from Dataverse's `customapis` table when the definition is saved | Leave them out of `schema_json`; only built-in messages and classic actions declare them |
+| A portal gets `404 … not available on the me tier` from a custom API | Its `tiers` doesn't list that tier — add it, with the matching `invoke` grant |

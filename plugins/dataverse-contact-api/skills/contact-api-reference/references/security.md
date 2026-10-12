@@ -26,6 +26,7 @@ Most of what follows is for the first, because most of the boundary is theirs.
 | Which columns may be written? | `fields` not marked `readOnly` | A read-only column is **dropped silently** — on create as well as PATCH |
 | May a write point at that row? | the lookup-ownership check, on `/me` and `/team` writes | Only for lookups whose `lookupTable` resolves — see below |
 | Which company? | `X-Company-Id` / `X-Contact-Id`, compared with the caller's own contacts and companies | A value that isn't theirs is refused — a 403 on `me`, `team` and writes — never an impersonation |
+| Which record may a custom API act on? | the record id in the path, checked against the API's `target` for the URL's tier | Only on a definition with `tiers`, and only the record it names — see *Custom APIs* |
 
 So everything a scope publishes is reachable by anyone with a valid token and
 `curl`. The portal's UI is not part of the boundary in either direction. Hiding
@@ -53,8 +54,9 @@ is every token the scope accepts, which is wider than this portal's users.
   sign-up — which an Entra External ID tenant usually does.
 
 So **no `all`, and no action ending in `:all`, in defaults** — `write:all`,
-`lookup:all` and `invoke:all` included (an `:all` invoke tier reduces an
-`ownershipCheck` to "the record exists"). Unscoped access belongs to named
+`lookup:all` and `invoke:all` included (`invoke:all` opens `/all/actions/…`,
+which checks only that the record exists and passes the target's filters).
+Unscoped access belongs to named
 people, as per-person grants. To keep one portal's users out of another scope
 entirely, give that scope its own audience.
 
@@ -156,22 +158,52 @@ Keep `contact:write:team` and `contact:write:all` out of defaults altogether.
 
 ### Custom APIs
 
-- **`publicInvoke: true` means anonymous.** Without it, `/public/actions/{name}`
-  needs a token, a resolved contact and the invoke permission — the `public` in
-  the path changes nothing. Make an action public only when anonymous use is the
-  point.
-- **Custom APIs are not row-scoped.** An action that acts on a record needs an
-  `ownershipCheck`, or the caller can name any record id the action accepts. The
-  check runs only on authenticated calls, so alongside `publicInvoke` it does
-  nothing.
+A custom API runs in Dataverse as the API's service principal, so the server's
+checks are the only thing between the caller and whatever the API does.
+
+What the server checks, on a definition with `tiers`:
+
+- **The record in the path.** On `me` / `team` it must belong to the caller's
+  contact / company through the `target` — a published route's own scoping, or
+  inline columns. On `all` it must exist and pass the target's filters.
+- **That the API acts on that record.** A bound API runs on it; an unbound one
+  has it written into `recordIdPath`, and a body naming a different record is a
+  400. The binding is read from Dataverse when the definition is saved, and
+  saving refuses a bound API whose target isn't the table Dataverse binds it
+  to.
+- **The caller's own ids** in `callerParameters`, overwriting the client's.
+- **Only declared parameters** are passed on.
+
+What it takes on trust:
+
+- **What the API does inside Dataverse.** The check covers the record it is
+  handed, not every row the plugin then touches.
+- **Caller-scoped APIs filter themselves.** With `callerParameters` and no
+  target, the server guarantees the ids are the caller's — and nothing else.
+  The plugin must filter by them and ignore anything else that names a record.
+- **Parameters marked `"unchecked": true`.** Any record id the caller sends
+  there reaches the API as sent. Saving refuses an unmarked `guid` /
+  `entityReference` / `entity` parameter on a non-public tier, so each one is a
+  decision someone made — review them.
+- **Legacy definitions** (no `tiers`). They have only the old `ownershipCheck`,
+  and without one, any record id the API accepts. Move them to `tiers`.
+
+And:
+
+- **`public` means anonymous**, and saving refuses a `target` or
+  `callerParameters` alongside it. Publish an API on `public` only when
+  anonymous use is the point.
 - **A function (`isFunction: true`, called with `GET`) must have no side
-  effects**, above all when it is `publicInvoke`: anyone's web page can trigger
-  an anonymous `GET` with an image tag.
-- Call an authenticated custom API with `client.me.invokeFunction` /
-  `invokeAction` (SDK 1.24.0 and later), which send the token.
-  `client.public.invokeFunction` / `invokeAction` send none, so they reach
-  only `publicInvoke` APIs. A 401 from them is a reason to switch to
-  `client.me`, never to make an action public.
+  effects**, above all on `public`: anyone's web page can trigger an anonymous
+  `GET` with an image tag.
+- **Don't publish a tiered definition to a deployment older than the release
+  that added tiers.** An older API reads it as a legacy definition with no
+  ownership check. Check the version of every deployment that reads the
+  scope's config — a customer's container updates on its own schedule.
+- Call an authenticated custom API on its tier — `client.me` / `client.team` /
+  `client.all` `.invokeFunction` / `.invokeAction` (SDK 1.26.0 and later).
+  `client.public` sends no token. A 401 from it is a reason to call the API on
+  `me`, never to make it public.
 
 ### Self-registration
 
@@ -272,7 +304,10 @@ With two real test contacts, A and B, for each route:
 | A citizen's token at `/all/<route>` | 403 |
 | No token at `/me/<route>`; at `/public/<route>` | 401; 404 unless the route is deliberately public |
 | A token from another portal on the same deployment, against this scope | 401 if the scope has its own audience; otherwise only what this scope's defaults are meant to give |
+| B invokes each `me` / `team` custom API with A's record id in the path | 404, and the API never ran |
+| A invokes an unbound custom API with A's record in the path and B's in the body | 400 — the body may not name a different record |
+| A citizen's token at `/all/actions/<name>`; no token at `/me/actions/<name>` | 403 (404 if the API doesn't list `all`); 401 |
 
 The first needs only an admin credential (`admin.md`); the rest need a token
-for each test contact. Run them again after any change to a join, a permission
-or a `readOnly` flag.
+for each test contact. Run them again after any change to a join, a permission,
+a `readOnly` flag or a custom API's `tiers` / `target`.

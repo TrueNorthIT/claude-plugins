@@ -144,18 +144,25 @@ resource "dataversecontact_custom_api" "expand_calendar" {
 }
 ```
 
-`schema_json` is the CustomApiHint document:
+`schema_json` is the CustomApiHint document. Its `tiers` decide which URLs
+the API answers on — `/api/v2/{scope}/{tier}/actions/{routeName}[/{id}]` for
+each tier listed — and the URL's tier decides the check:
+
+| Tier | Caller needs | The record in the path must |
+|---|---|---|
+| `public` | nothing | — (anyone may call it) |
+| `me` | `{routeName}:invoke` and a contact | belong to the caller's contact, through `target` |
+| `team` | `{routeName}:invoke:team` and a company account | belong to the caller's selected company, through `target` |
+| `all` | `{routeName}:invoke:all` | exist and pass `target.filters` |
 
 ```json
 {
   "routeName": "expand-calendar",
   "dataverseUniqueName": "ExpandCalendar",
-  "requiredPermission": "expand-calendar:invoke",
   "isFunction": true,
-  "publicInvoke": true,
   "bindingType": "entity",
-  "boundEntityLogicalName": "calendar",
   "boundEntitySetName": "calendars",
+  "tiers": ["public"],
   "requestParameters": [
     { "uniqueName": "Start", "type": "datetime" },
     { "uniqueName": "End", "type": "datetime" }
@@ -163,68 +170,178 @@ resource "dataversecontact_custom_api" "expand_calendar" {
 }
 ```
 
-`expand-calendar` is `publicInvoke` because it is a read-only function that
-turns a resource calendar into free slots — data an anonymous visitor to a
-booking page is meant to see. That is the bar for `publicInvoke`; leave it
-`false` (the default) for anything else.
+`expand-calendar` is public because it is a read-only function that turns a
+resource calendar into free slots — data an anonymous visitor to a booking page
+is meant to see. That is the bar for `public`; publish anything else on `me`,
+`team` or `all`.
+
+`ExpandCalendar` declares its binding because it's a built-in message — see
+"The binding comes from Dataverse" below.
 
 Computed: `id`, `source`, `dataverse_unique_name`, `is_function`,
-`binding_type`.
+`binding_type` (the last two as Dataverse reports them).
+
+> **Rollout.** `tiers`, `target` and `callerParameters` need an API release
+> that has them (API / SDK 1.26.0). An older deployment reads a definition with
+> `tiers` as a legacy one with **no ownership check**, and one with only
+> `tiers: ["public"]` as not public. Don't publish tiered definitions to a
+> scope any older deployment serves. A public one can keep
+> `"publicInvoke": true` alongside `tiers: ["public"]` — both releases read
+> that the same way.
+
+### The binding comes from Dataverse
+
+Whether an API is a function or an action, whether it's bound, and to which
+table, are read from Dataverse's `customapis` table when the definition is
+published. For those APIs, **leave `isFunction`, `bindingType`,
+`boundEntityLogicalName` and `boundEntitySetName` out**; a definition that
+states one differently from Dataverse is refused with a 400 naming the field. A
+bound API is called on its `target` table's entity set, which must be the table
+Dataverse binds it to; with no target the set comes from the table's metadata.
+
+Built-in messages (`CloseIncident`, `ExpandCalendar`) and classic process
+actions aren't in `customapis`, so their definitions still declare
+`isFunction` and `bindingType` — plus `boundEntitySetName`, or a `target`, when
+bound. A wrong entity set there still can't run the API on another table:
+Dataverse answers a bound call on the wrong set with a 404.
+
+The provider never refreshes `schema_json` from the server, so the fields the
+API fills in don't show as drift.
 
 ### The CustomApiHint schema in full
 
-`schema_json` is hand-written, so this is the complete field set — there is no
-HCL schema to validate it for you.
+`schema_json` is hand-written, so this is the complete field set. There is no
+HCL schema to validate it, but the API refuses a definition that breaks the
+rules below when it is published, so the apply fails rather than publishing it.
 
 | Field | Required | Notes |
 |---|---|---|
-| `routeName` | yes | URL segment under `/public/actions/{routeName}` — the only action route, authenticated unless `publicInvoke`; see the routing note below. |
-| `dataverseUniqueName` | yes | The Custom API's unique name in Dataverse — used in the OData URL. |
-| `isFunction` | yes | `true` = GET, read-only. `false` = POST, has side effects. |
-| `bindingType` | yes | `global` (service root), `entity` (bound to one record), `entityCollection` (bound to a set). |
-| `boundEntityLogicalName` | for bound | Logical entity name, e.g. `calendar`. |
-| `boundEntitySetName` | for `entity` | Entity set name, e.g. `calendars`. |
+| `routeName` | yes | URL segment under `/{tier}/actions/{routeName}`. Also the permission subject. |
+| `dataverseUniqueName` | yes | The Custom API's unique name in Dataverse — used in the OData URL. Dataverse's own messages (`CloseIncident`, `ExpandCalendar`) work too. |
+| `isFunction` | only if not in `customapis` | `true` = GET, read-only. `false` = POST, has side effects. Read from Dataverse otherwise. |
+| `bindingType` | only if not in `customapis` | `global` (service root), `entity` (bound to one record), `entityCollection` (bound to a set). Read from Dataverse otherwise. |
+| `boundEntityLogicalName` | no | Logical entity name, e.g. `calendar`. Read from Dataverse when it's in `customapis`. |
+| `boundEntitySetName` | only for a bound API not in `customapis`, without a `target` | Entity set name, e.g. `calendars`. Otherwise taken from the `target` table or the entity's metadata. |
+| `tiers` | yes, for new definitions | `public`, `me`, `team`, `all` — the URLs the API answers on. Without it the definition is legacy (below). |
+| `target` | for `me` / `team` on a record | The record the API acts on and how ownership is checked — below. |
+| `callerParameters` | no | `{ "<param>": "contactId" }` or `"accountId"` — parameters the server fills from the verified caller. |
 | `displayName` | no | Defaults to `dataverseUniqueName`. |
 | `description` | no | Shown in discovery and the OpenAPI document. |
-| `requiredPermission` | no | Defaults to `{routeName}:invoke`. |
-| `publicInvoke` | no | Default `false`, which means callable with a token, a resolved contact and `requiredPermission`. `true` = callable by anyone, unauthenticated — and `ownershipCheck` is then skipped, so the two can't usefully be combined (nothing rejects the combination; the check just never runs). |
-| `requestParameters` | no | Inputs. Defaults to `[]`. |
+| `requiredPermission` | no | Defaults to `{routeName}:invoke`; only its subject is used — the tier comes from the URL. |
+| `publicInvoke` | no | Legacy spelling of `tiers: ["public"]`. |
+| `requestParameters` | no | Inputs. Defaults to `[]`. A tiered API passes on only these. |
 | `responseProperties` | no | Outputs. Defaults to `[]`. |
-| `ownershipCheck` | no | Tier-aware ownership verification — see below. |
+| `ownershipCheck` | no | Legacy only, and refused alongside `tiers` — use `target`. |
 
 Each parameter is `{ uniqueName, displayName, type, description?,
-logicalEntityName?, isOptional? }`. Valid `type` values: `boolean`, `datetime`,
-`decimal`, `entity`, `entityCollection`, `entityReference`, `float`, `integer`,
-`money`, `picklist`, `string`, `stringArray`.
+logicalEntityName?, isOptional?, unchecked? }`. Valid `type` values: `boolean`,
+`datetime`, `decimal`, `entity`, `entityCollection`, `entityReference`, `float`,
+`guid`, `integer`, `money`, `picklist`, `string`, `stringArray`.
 
-Custom APIs are **not row-scoped** the way tables are. If an action affects a
-specific record, `ownershipCheck` is what stops a caller acting on someone
-else's:
+### Three shapes
+
+Custom APIs are **not row-scoped** the way tables are; `target` is what stops a
+caller acting on someone else's record. The record always goes in the URL, so
+the record Dataverse acts on is the record that was checked.
+
+**Bound to a record** — the path id is the bound record. `target` must be a
+route on the table Dataverse binds the API to, with no `recordIdPath`
+(`tn_EscalateCase` is bound to `incident`; the `case` route is on `incidents`):
 
 ```json
-"ownershipCheck": {
-  "dataverseTable": "incidents",
-  "primaryKey": "incidentid",
-  "recordIdPath": "CaseRef",
-  "contactColumn": "customerid_contact",
-  "accountColumn": "customerid_account",
-  "filters": ["statecode eq 0"]
+{
+  "routeName": "escalate-case",
+  "dataverseUniqueName": "tn_EscalateCase",
+  "tiers": ["me", "team"],
+  "target": { "table": "case" }
 }
 ```
 
-It reuses the same join logic as table writes: the caller's invoke tier decides
-whether ownership is checked against their contact (`me`), their account
-(`team`), or just the filters (`all`). Omit `recordIdPath` for entity-bound
-actions — the record ID comes from the URL. Omit `contactColumn` or
-`accountColumn` to withhold that tier entirely.
+**Unbound, acting on a record** — the path id is written into the parameter
+`recordIdPath` names, in the shape its type needs (a guid, an entity reference,
+or an `…@odata.bind` field); a body naming a different record is a 400.
+`CloseIncident` is a built-in message, so it declares its binding:
 
-A POST action that mutates a record, has no `ownershipCheck`, and is granted
-`invoke` is worth flagging in review: nothing ties the call to the caller.
+```json
+{
+  "routeName": "close-incident",
+  "dataverseUniqueName": "CloseIncident",
+  "isFunction": false,
+  "bindingType": "global",
+  "tiers": ["me", "team"],
+  "target": {
+    "table": "case",
+    "recordIdPath": "IncidentResolution.incidentid@odata.bind",
+    "filters": ["statecode eq 0"]
+  },
+  "requestParameters": [
+    { "uniqueName": "IncidentResolution", "displayName": "Resolution", "type": "entity" },
+    { "uniqueName": "Status", "displayName": "Status", "type": "integer" }
+  ]
+}
+```
+
+**Unbound, caller-scoped** — no record; the server fills the caller's ids. The
+API itself must filter by them:
+
+```json
+{
+  "routeName": "my-upcoming-bookings",
+  "dataverseUniqueName": "tn_MyUpcomingBookings",
+  "tiers": ["me"],
+  "callerParameters": { "CitizenId": "contactId" },
+  "requestParameters": [
+    { "uniqueName": "CitizenId", "displayName": "Citizen", "type": "guid" }
+  ]
+}
+```
+
+`target.table` names a published route in the scope; the check then uses that
+route's own contact and account paths (multi-hop and reverse joins included)
+and its filters, plus `target.filters`. For a table that isn't a route, declare
+it inline instead — `dataverseTable`, `primaryKey`, `contactColumn` (for `me`;
+an array is OR'd), `accountColumn` (for `team`), `recordIdPath`, `filters`.
+
+### What publishing refuses
+
+- `isFunction`, `bindingType` or the bound table stated differently from
+  Dataverse; or, for an API that isn't in `customapis`, `isFunction` /
+  `bindingType` left out (and, when bound, both `boundEntitySetName` and a
+  `target`).
+- A bound API whose `target` isn't the table Dataverse binds it to, or that sets
+  `target.recordIdPath`.
+- An unbound `target` without `recordIdPath`, or a `recordIdPath` /
+  `callerParameters` entry that isn't a declared request parameter. On a
+  function, `recordIdPath` must be a top-level `guid` / `entityReference` /
+  `string` parameter.
+- `me` or `team` with neither a `target` nor a matching `callerParameters` entry
+  (`contactId` for `me`, `accountId` for `team`); a bound API on `me` / `team`
+  without a `target`; a target route with no contact path (for `me`) or account
+  path (for `team`), or a lake route.
+- `public` together with `target` or `callerParameters`.
+- A `guid` / `entityReference` / `entity` / `entityCollection` parameter the
+  server doesn't fill, on any non-public tier — unless it is marked
+  `"unchecked": true`. Mark one only when any record really is acceptable there.
+- `ownershipCheck` alongside `tiers`; `target` or `callerParameters` without
+  `tiers`.
+
+A `target.table` that isn't published yet is accepted, so the API and its table
+can apply in either order; calls answer 500 until the table exists. A
+`depends_on` on the table closes that window.
+
+### Legacy definitions (no `tiers`)
+
+Definitions written before tiers keep working: `publicInvoke: true` means
+`public`; anything else answers on `/{tier}/actions` for the tiers its
+`ownershipCheck` can check (`me` with a `contactColumn`, `team` with an
+`accountColumn`, and `all`), and on the deprecated `/public/actions/{name}` at
+the caller's highest grant. When adopting one, convert it: `ownershipCheck`
+becomes `target` (same fields), list the `tiers`, and tell the portal that the
+record now goes in the URL.
 
 A function (`isFunction: true`) is called with `GET`, and the API assumes it
-changes nothing. Make sure the Dataverse side agrees — above all when it is
-`publicInvoke`, because any web page can fire an anonymous `GET` from an image
-tag.
+changes nothing. Make sure the Dataverse side agrees — above all on `public`,
+because any web page can fire an anonymous `GET` from an image tag.
 
 ## `dataversecontact_permissions_sync`
 
@@ -264,7 +381,7 @@ resource "dataversecontact_permissions_sync" "scope" {
 | Attribute | Notes |
 |---|---|
 | `scope` | Forces replacement when changed. |
-| `default_permissions` | Map of route name → action list. Valid actions: `me`, `team`, `all`; `write`, `write:team`, `write:all`; `create`, `create:team`, `create:all`; `lookup`, `lookup:team`, `lookup:all`; `invoke`, `invoke:team`, `invoke:all`. An unrecognised action is rejected when the defaults are published (a 400), so the apply fails rather than publishing a broken scope. **Reaches every token the scope accepts** — callers with no contact (who can still use `all`), and other portals' users unless the scope has its own audience — so never put `all`, or any action ending in `:all`, here — `invoke:all` included, which reduces an `ownershipCheck` to "the record exists". |
+| `default_permissions` | Map of route name → action list. Valid actions: `me`, `team`, `all`; `write`, `write:team`, `write:all`; `create`, `create:team`, `create:all`; `lookup`, `lookup:team`, `lookup:all`; `invoke`, `invoke:team`, `invoke:all`. An unrecognised action is rejected when the defaults are published (a 400), so the apply fails rather than publishing a broken scope. **Reaches every token the scope accepts** — callers with no contact (who can still use `all`), and other portals' users unless the scope has its own audience — so never put `all`, or any action ending in `:all`, here — `invoke:all` included, which opens `/all/actions/…`, where a custom API checks only that the record exists. |
 | `allow_self_register` | Default `false`. Lets a signed-in caller with no contact self-provision via `POST /me/register` — with the email from their token — and receive `default_permissions` at once. |
 | `company_model` | Nested **attribute** (`= { … }`, not a block). `strategy` is `parent-account` or `associated-accounts`; the latter takes `associated_accounts = { relationship, account_id_field, account_name_field, fetch_xml }`. |
 | `join` | Nested **attribute**. `strategy` (only `domain-list` today), `domain_field`, `require_match`. The `domain_field` column decides who may join each company: keep it staff-maintained, `read_only` (or absent) on every route, and free of shared or consumer domains — the API refuses only a short built-in list such as gmail.com. |
@@ -360,33 +477,24 @@ where tier is one of `me`, `team`, `all` or `public`:
 | `GET /api/v2/{scope}/choices[/{route}[/{field}]]` | Option-set values — governed by `public_choices` |
 
 The `public` tier is deliberately narrower: list, single record and
-`/public/actions/{name}` only. It rejects `lookup` and `aggregate` outright, so
+`/public/actions/{name}` (for custom APIs published on `public`) only. It rejects `lookup` and `aggregate` outright, so
 `public_read` never hands an anonymous caller a type-ahead over your data. It
 does let them `select` and `filter` on every column in `fields`, read every
 configured `expand`, and page through every row the route's `filters` allow.
 
-**Custom APIs have exactly one route: `/api/v2/{scope}/public/actions/{routeName}`.**
-Verified against the deployed API on 2026-08-25:
-
-| Request | Result |
-|---|---|
-| `GET /api/v2/{scope}/public/actions/expand-calendar` | reaches the handler (`400 Missing required parameter: Start`) |
-| `GET /api/v2/{scope}/actions/expand-calendar` | `404` — no such route |
-| `GET /api/v2/{scope}/me/actions/expand-calendar` | `404 Unknown table: actions` — falls through to table routing |
-
-The `public` in that path decides nothing. Without `publicInvoke`, the handler
-requires a bearer token, a resolved contact and `requiredPermission` — so
-`invoke`, `invoke:team` and `invoke:all` grants are live permissions, and the
-tier a caller holds is also what `ownershipCheck` verifies against (their
-contact, their account, or at `all` only that the record exists). Only
-`publicInvoke: true` skips all of it. (The `CustomApiHint` type comment still
-describes `/api/v2/{scope}/actions/{name}`; that route does not exist.)
+**A custom API answers on `/api/v2/{scope}/{tier}/actions/{routeName}[/{id}]`**
+for each tier in its `tiers` — `GET` for a function, `POST` for an action. A
+tier it doesn't list is a 404, so the grant and the URL have to agree: a
+`close-incident = ["invoke"]` default opens `/me/actions/close-incident/{id}`
+only. The table route names `actions`, `lookup`, `aggregate`, `changes`,
+`whoami`, `companies`, `claimable-companies` and `register` are reserved for
+these segments.
 
 One trap catches portals: the SDK's `client.public.invokeFunction` /
 `invokeAction` send no token, so calling a non-public API through them is a 401.
-The fix is for the portal to send the token itself, not for the scope to make
-the API public. A change that sets `publicInvoke` to clear a 401 is a change to
-stop on.
+The fix is for the portal to call it on its tier (`client.me.invoke…`), not for
+the scope to make the API public. A change that adds `public` to `tiers` (or
+sets `publicInvoke`) to clear a 401 is a change to stop on.
 
 Scope-level endpoints the `permissions_sync` settings govern:
 

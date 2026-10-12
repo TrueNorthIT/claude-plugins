@@ -468,7 +468,7 @@ Non-negotiable rules:
 - Files under 300 lines. Split components; extract hooks.
 - One concern per file.
 - No barrel exports.
-- **Always use the `@truenorth-it/dataverse-client` SDK. Never hand-roll fetch, never build OData query strings, never set the `Authorization` header yourself.** The SDK's scope clients (`client.me`, `client.team`, `client.all`) handle auth, query encoding, pagination, and error shapes. That includes custom APIs: `client.me.invokeFunction` / `invokeAction` (SDK 1.24.0 and later) call one that isn't `publicInvoke` with the citizen's token — see *SDK usage*.
+- **Always use the `@truenorth-it/dataverse-client` SDK. Never hand-roll fetch, never build OData query strings, never set the `Authorization` header yourself.** The SDK's scope clients (`client.me`, `client.team`, `client.all`) handle auth, query encoding, pagination, and error shapes. That includes custom APIs: `client.me.invokeFunction` / `invokeAction` (SDK 1.26.0 and later) call one on the `me` tier with the citizen's token, the record in `recordId` — see *SDK usage*.
 - **Redirect flows only, never popup.** Popups get blocked, and on a phone a popup sign-in is worse than a redirect in every way. `loginRedirect`, `acquireTokenRedirect`, `logoutRedirect`.
 - **Every list pages.** A `list` call returns one page: 20 rows by default and never more than 100, because a larger `top` is cut to 100 without an error. A list screen that calls `list` once shows the first page and nothing else. Use `useInfiniteQuery`, following `page.next` with `fetchPage`, and give the screen a "Load more" button. Drain every page with `eachPage` only for a bounded set (a dropdown's options, an export), never for a screen that grows with the data. See *Code quality* for the hook.
 - **Every SDK call is typed from `dataverse.generated.ts`.** Reads pass the row type (`list<Case>`) and take `QueryOptionsFor<CaseField>`. Writes take `CaseCreateInput` / `CaseUpdateInput`, not `Partial<Case>`. Choice values come from the generated consts. No hand-written table interfaces, and no `as` casts on SDK results.
@@ -953,18 +953,24 @@ Tier selection follows the user's `TIER` from the prompt:
 
 `client.me` is the only tier with `create`. There is no DELETE on the data tier at all.
 
-**Custom APIs that aren't public: `client.me.invokeFunction` / `invokeAction`** (SDK 1.24.0 and later). They send the citizen's token and selected company; the API checks a resolved contact and the `:invoke` permission. `client.public.invokeFunction` / `invokeAction` send no token, so they only reach custom APIs published with `publicInvoke: true`. Both hit `/public/actions/{name}` — the `public` in it changes nothing. Never ask for an action to be made public to suit the client:
+**Custom APIs: call them on the portal's tier — `client.me.invokeFunction` / `invokeAction`** (SDK 1.26.0 and later; `team` likewise). They call `/{tier}/actions/{name}[/{recordId}]` with the citizen's token and selected company, and the API checks the tier's `:invoke` permission and that the record is the citizen's. **The record goes in `recordId`, never in the body** — the API checks the record in the URL and writes it into its own parameter itself; a body naming a different record is a 400. A caller-scoped API ("my bookings") takes no `recordId`: the API fills in who's asking. `client.public.invokeFunction` / `invokeAction` send no token, so they only reach APIs published on the `public` tier. A 404 `not available on the me tier` means the scope hasn't published the API there — ask for that, never for the API to be made public:
 
 ```ts
-// A function (GET) — parameters in the query string. recordId is for an
-// entity-bound API, where its ownership check reads the record from the URL.
-const { data } = await client.me.invokeFunction<{ result: Slot[] }>("expand-calendar", {
+// An action (POST) on the citizen's own case — the case in recordId,
+// parameters in the JSON body.
+await client.me.invokeAction("close-incident", {
+  recordId: caseId,
+  body: { IncidentResolution: { subject: "Resolved online" }, Status: 5 },
+});
+
+// A caller-scoped function (GET) — no recordId; parameters in the query string.
+const { data } = await client.me.invokeFunction<{ Bookings: string }>("my-upcoming-bookings");
+
+// Anonymous, read-only data on the public tier.
+const slots = await client.public.invokeFunction<{ result: Slot[] }>("expand-calendar", {
   recordId: calendarId,
   params: { Start: start, End: end },
 });
-
-// An action (POST) — parameters in the JSON body.
-await client.me.invokeAction("send-reminder", { recordId: caseId, body: { Note: note } });
 ```
 
 For picklist labels, the SDK automatically includes `<field>_label` alongside `<field>` in list responses when the schema declares the field as `choice`. Use those fields directly in the UI — no extra lookup needed.

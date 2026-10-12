@@ -49,7 +49,7 @@ The four tiers are properties on the client, and they are not interchangeable:
 client.me      // rows joined to the signed-in contact
 client.team    // rows joined to their account
 client.all     // every row
-client.public  // unauthenticated; read-only in the SDK, plus action invocation
+client.public  // unauthenticated; read-only in the SDK, plus public custom APIs
 ```
 
 ### What exists where
@@ -64,6 +64,7 @@ client.public  // unauthenticated; read-only in the SDK, plus action invocation
 | `whoami` | **yes** | — | — | — |
 | `companies` | **yes** | — | — | — |
 | `register` | **yes** | — | — | — |
+| `invokeFunction` / `invokeAction` | yes | yes | yes | yes (no token) |
 
 `create`, `whoami`, `companies` and `register` exist **only** on `me`.
 
@@ -73,29 +74,41 @@ For `whoami`, `companies` and `register` that mirrors the HTTP surface. For
 and `client.public` has no `create` method for it. If you need a public create,
 `fetch` it directly. `team` and `all` genuinely answer 405.
 
-**Custom APIs: call an authenticated one through `client.me`** (SDK 1.24.0
-and later). `client.me.invokeFunction` / `invokeAction` send the token and the
-selected company; the caller needs a resolved contact and the API's invoke
-permission. `client.public.invokeFunction` / `invokeAction` send no token, so
-they reach only custom APIs published with `publicInvoke: true`. Both use the
-same `/public/actions/{name}` path; the `public` in it decides nothing.
+**Custom APIs: call one on the tier you mean** (SDK 1.26.0 and later).
+`client.me` / `client.team` / `client.all` `.invokeFunction` / `.invokeAction`
+call `/{tier}/actions/{name}[/{recordId}]` with the token and the selected
+company; the caller needs that tier's invoke permission, and `me` / `team` a
+resolved contact. `client.public.invokeFunction` / `invokeAction` send no token
+and reach only APIs published on the `public` tier.
 
 ```ts
-// A function (GET): parameters go in the query string. recordId only for an
-// entity-bound API — that's where an ownershipCheck takes the record from.
-const { data } = await client.me.invokeFunction<{ result: Slot[] }>("expand-calendar", {
+// An action (POST) on the caller's own case: the case goes in recordId, never
+// the body. The server checks it's theirs, then hands it to the API.
+await client.me.invokeAction("close-incident", {
+  recordId: caseId,
+  body: { IncidentResolution: { subject: "Resolved online" }, Status: 5 },
+});
+
+// The same API on a case of the caller's company.
+await client.team.invokeAction("close-incident", { recordId: caseId, body: { /* … */ } });
+
+// A caller-scoped function (GET): no recordId — the server fills the caller's
+// own id into the API's parameters.
+const { data } = await client.me.invokeFunction<{ Bookings: string }>("my-upcoming-bookings");
+
+// An anonymous public function: parameters in the query string.
+const slots = await client.public.invokeFunction<{ result: Slot[] }>("expand-calendar", {
   recordId: calendarId,
   params: { Start: start, End: end },
 });
-
-// An action (POST): parameters go in the JSON body.
-await client.me.invokeAction("send-reminder", { recordId: caseId, body: { Note: "…" } });
 ```
 
-A 401 from `client.public` on an action means it needs a token: use
-`client.me`. It is not a reason to make the action public — `publicInvoke`
-makes it callable by anyone on the internet. On an SDK older than 1.24.0, send
-the token yourself with `fetch` to the same path.
+A 404 means the API isn't published on that tier (or the record isn't the
+caller's); a 401 from `client.public` means the API isn't public — call it on
+`me`. Neither is a reason to make an API public: that makes it callable by
+anyone on the internet. Before 1.26.0, `client.me.invoke*` called the
+deprecated `/public/actions/{name}` route, which takes the tier from the
+caller's highest grant.
 
 **There is no `delete` method anywhere**, because there is no `DELETE` verb.
 Deactivation is an update to `statecode`. For `incident`, even that will not
