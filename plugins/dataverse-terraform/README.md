@@ -38,6 +38,7 @@ like:
 | "does this PR widen access?" | A review focused on the permission surface |
 | "is this scope secure?" | The security pass — twelve checks, each traced to a line of your config, plus the negative test to run against the deployment |
 | "add a `casenotes` route to this repo" | The resource, its permission entry, and the `triggers`/`depends_on` wiring |
+| "add the note API for the me route" | The custom API found in the scope's Dataverse (binding, parameters), its `*.customapi.json` with `tiers = ["me"]` and a target route, the `invoke` grant and the wiring |
 
 ## What you need
 

@@ -1,6 +1,6 @@
 ---
 name: create-portal-terraform
-description: Define, and explain, a Dataverse Contact API portal backend as Terraform — which tables are published as routes, which fields callers can read and write, how rows are scoped to the signed-in citizen, and the baseline permissions. Use when the user asks to create / write / generate Terraform for the portal API or for a scope, to codify or export an existing scope as Terraform, to import a scope into Terraform state, to provision a new scope with terraform apply, or to add a table / route / permission to an existing Contact API Terraform repo. Also use to explain, review, document or hand over an existing Contact API Terraform config — "what does this scope expose", "who can see X", "what will this apply do", reviewing a change for whether it widens access, or checking whether a scope is secure before go-live. Works against the public TrueNorthIT/dataversecontact provider.
+description: Define, and explain, a Dataverse Contact API portal backend as Terraform — which tables are published as routes, which fields callers can read and write, how rows are scoped to the signed-in citizen, and the baseline permissions. Use when the user asks to create / write / generate Terraform for the portal API or for a scope, to codify or export an existing scope as Terraform, to import a scope into Terraform state, to provision a new scope with terraform apply, or to add a table / route / permission / custom API to an existing Contact API Terraform repo (e.g. "add the note API for the me route") — it discovers the scope's Dataverse tables, columns and custom APIs (binding, bound table, parameters) from the deployment rather than guessing them. Also use to explain, review, document or hand over an existing Contact API Terraform config — "what does this scope expose", "who can see X", "what will this apply do", reviewing a change for whether it widens access, or checking whether a scope is secure before go-live. Works against the public TrueNorthIT/dataversecontact provider.
 ---
 
 # create-portal-terraform
@@ -186,12 +186,14 @@ curl -s "$DATAVERSE_CONTACT_API_URL/api/v2/<scope>/schema?table=<route>"
 ```
 
 **3. Neither — the API has never served this table.** Only now fall back to
-Dataverse metadata. This one needs the `contact-admin` CLI and a **workforce
-Entra login**, which is a different credential from the Terraform connection
-key, so it is not available to everyone who can otherwise do this work:
+Dataverse metadata, through the `contact-admin` CLI. The Terraform connection
+key is enough — pass it as `CONTACT_ADMIN_TOKEN`; a workforce Entra login
+(`contact-admin login`) works too:
 
 ```bash
 npm install -g @truenorth-it/contact-admin
+export CONTACT_ADMIN_TOKEN="$DATAVERSE_CONTACT_CONNECTION_KEY"
+contact-admin discover entities --url "$API_URL" --scope "$SCOPE" --json
 contact-admin discover entity <logicalName> --url "$API_URL" --scope "$SCOPE" --json
 contact-admin discover children <parentLogicalName> --url "$API_URL" --scope "$SCOPE" --json
 ```
@@ -207,6 +209,51 @@ checkable.
 > fails with a state-consistency error about a dropped field. Its `defaultFields`
 > is tuned for its own UI too, and omits `description`. Take the join paths and
 > the create-defaults verbatim — filter the field list.
+
+### B2b. Discover a custom API — never write a parameter from memory
+
+The same rule for custom APIs. "The note API" is not a unique name, and a
+guessed parameter list publishes and then fails at call time. The deployment
+lists every custom API in the scope's Dataverse — plus the built-in messages
+(`CloseIncident`, `ExpandCalendar`) — with the binding, the bound table and
+each parameter's type, using the connection key:
+
+```bash
+curl -s -H "Authorization: Bearer $DATAVERSE_CONTACT_CONNECTION_KEY" \
+  "$DATAVERSE_CONTACT_API_URL/api/v2/_admin/<scope>/discover-custom-apis"
+curl -s -H "Authorization: Bearer $DATAVERSE_CONTACT_CONNECTION_KEY" \
+  "$DATAVERSE_CONTACT_API_URL/api/v2/_admin/<scope>/discover-custom-apis?uniqueName=<uniqueName>"
+```
+
+(or `contact-admin discover apis [search]` / `contact-admin discover api
+<uniqueName>` with a CLI recent enough to have them; the admin MCP tool is
+`discover_custom_apis`). Match the user's words against `uniqueName`,
+`displayName` and `description`. One clear match — use it and say which.
+Several, or none — list the candidates and ask; don't pick the nearest name.
+
+Then read the shape off the result, not off the name:
+
+| In the result | Means | In `schema_json` |
+|---|---|---|
+| `bindingType: "entity"`, `boundEntityLogicalName: X` | bound to X | `target = { table: <the route on X> }` |
+| `bindingType: "global"`, a `guid`/`entityReference` param naming a record the caller owns | unbound on a record | `target = { table, recordIdPath: "<param>" }` |
+| a `guid` param that is the caller | caller-scoped | `callerParameters = { "<param>": "contactId" }` (or `accountId`) |
+| any other `guid`/`entityReference`/`entity` param | a decision | ask; `"unchecked": true` only for reference data, said in review |
+| `requestParameters[]`, `responseProperties[]` | the call's signature | copy `uniqueName`, `displayName`, `type`, `logicalEntityName`, `isOptional` verbatim |
+
+Don't copy `isFunction`, `bindingType` or `boundEntityLogicalName` into the
+definition for an API Dataverse holds in `customapis` — publishing fills them
+in. Only a built-in message or classic action declares them (*Custom APIs* in
+`references/patterns.md`).
+
+**`target.table` must be a route the scope already publishes**, because the
+ownership check is that route's join. If the bound table or the record
+parameter's table isn't a route yet, add it first (B2, B3), then the API.
+
+**The tier is in the request.** "for the me route" means `tiers = ["me"]` and
+`"<route>" = ["invoke"]` in `default_permissions`; "for colleagues" means
+`team` and `invoke:team`. Never `public` for an API that names a record, and
+never `invoke:all` in defaults.
 
 ### B3. Write one resource per route
 
@@ -349,6 +396,21 @@ stay in step, and forgetting the third is the usual bug:
 Then put the new route through *The security pass* (`references/patterns.md`)
 — the rest of the config having passed it says nothing about a route it has
 never seen. Run `terraform fmt` before finishing.
+
+**Adding a custom API** — "add the note API for the me route" — is the same
+three things with a `dataversecontact_custom_api` in place of the table:
+
+1. discover it (B2b) and write `schemas/<uniqueName>.customapi.json` from the
+   result, with `tiers` from the request and a `target` (or `callerParameters`)
+   naming a route already in the repo — add that route first if it isn't;
+2. the `dataversecontact_custom_api` resource, `depends_on` the target route's
+   table resource;
+3. `"<api route>" = ["invoke"]` (or `invoke:team`) in `default_permissions`,
+   and the new resource's `id` in `triggers` and `depends_on` on
+   `permissions_sync`.
+
+Plan, apply, and call it once on its tier with a record the caller owns and one
+they don't — the second must be refused.
 
 ## Failure modes worth recognising
 
