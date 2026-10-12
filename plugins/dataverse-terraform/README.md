@@ -181,3 +181,5 @@ dataverse-terraform/
 | `An argument named "contact_email_column" is not expected here` | Provider older than v1.2.0. Run `terraform init -upgrade` and commit `.terraform.lock.hcl` |
 | Nobody is recognised after setting `contact_email_column` | Existing contacts don't have their address in that column yet — fill it, or remove the setting |
 | A custom API shows a `# whitespace changes` diff | Benign. State holds the API's compact JSON, the file is pretty-printed; one apply settles it |
+| Publishing a custom API fails with a 400 about `target`, `recordIdPath`, `callerParameters` or `unchecked` | The API's rules for tiered custom APIs (API 1.26.0+): a bound API's target must be its own table, and a record parameter must be checked or marked `unchecked`. The message names the fix |
+| A portal gets `404 … not available on the me tier` from a custom API | Its `tiers` doesn't list that tier — add it, with the matching `invoke` grant |

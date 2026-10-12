@@ -227,7 +227,10 @@ this order:
 4. **What callers may do** — the route's entry in `default_permissions`. That
    entry reaches every token the scope accepts, not just this portal's users:
    never `all`, nor any action ending in `:all` (`write:all`, `lookup:all`, `invoke:all`…).
-5. **What could go wrong** — run the route through *The security pass* at the
+5. **Custom APIs it backs** — give each `tiers` and a `target` naming this
+   route (or `callerParameters`), per *Custom APIs* in `references/patterns.md`.
+   A custom API without `tiers` is legacy; don't write new ones.
+6. **What could go wrong** — run the route through *The security pass* at the
    end of `references/patterns.md`. The API enforces exactly what the config
    says, so a route can plan, apply and work in the portal and still leak:
    a writable sign-in column (`emailaddress1`, or the scope's
@@ -297,7 +300,8 @@ paths, the permission vocabulary, and the list of constructs to flag every time
 (`all` — above all in `default_permissions`, `team`, `public_read`,
 `public_create`, `fetch_xml`, `filters = []`, `create_default`, writable
 identity columns, lookups without `lookup_table`, `expand`, notes routes,
-`permission_group`, `publicInvoke`, self-registration settings).
+`permission_group`, custom APIs on `public` or without `tiers`, `callerParameters`
+and `unchecked` parameters, self-registration settings).
 
 ### C3. Answer at the altitude asked
 
@@ -312,7 +316,8 @@ identity columns, lookups without `lookup_table`, `expand`, notes routes,
   can see or change what. A description tweak is routine. Stop on: a
   permission or `public_*` change; a `read_only` removed; a column added to
   `fields` (every reader can select it); a new `expand`, `fetch_xml` or join
-  step; `publicInvoke` switched on — especially to clear a 401, which is a
+  step; a custom API's `tiers` widened, its `target` loosened, a parameter
+  marked `unchecked`, or `public` added — especially to clear a 401, which is a
   portal sending no token, not a scope that is too strict.
 - **"Is this scope secure?"** → *The security pass* in
   `references/patterns.md`, item by item, quoting the line behind each answer.
@@ -355,5 +360,7 @@ never seen. Run `terraform fmt` before finishing.
 | `company_model { … }` fails to parse | it is a nested attribute, not a block: `company_model = { … }` |
 | apply fails publishing `permissions_sync` with `contains unknown action` | a typo in `default_permissions` — the API rejects the whole document rather than publish it |
 | `test-query --tier me` for a contact that matches nobody returns rows | the route isn't filtering by caller — usually `fetch_xml` without `{{contactid}}`, which replaces the join. Fix before anyone uses it |
-| a portal gets `401` calling a custom API | the API isn't `publicInvoke` and the SDK's invoke methods send no token. The portal must send one; don't switch `publicInvoke` on |
+| a portal gets `401` calling a custom API | the portal called it through `client.public`, which sends no token, and the API isn't on the `public` tier. Call it on its tier (`client.me.invoke…`); don't add `public` |
+| a custom API answers `404 … not available on the me tier` | `tiers` doesn't list the tier the portal calls. Add it to `tiers` (and the matching `invoke` grant), or call the tier it lists |
+| publishing a custom API fails with a 400 naming `target`, `recordIdPath`, `callerParameters` or `unchecked` | the API's save rules — see *What publishing refuses* in `references/provider-reference.md` |
 | a field "saves" with a 200 but never changes | it is `read_only`; the API drops it silently from create and PATCH |

@@ -360,6 +360,35 @@ function securityWarnings(def, signInColumn) {
   return warnings;
 }
 
+/**
+ * The same for a custom API's schema: what the API takes on trust rather than
+ * checks. Prompts, not verdicts.
+ */
+function customApiWarnings(schema) {
+  const warnings = [];
+  const tiers = Array.isArray(schema.tiers) ? schema.tiers : null;
+  const isPublic = tiers ? tiers.includes("public") : schema.publicInvoke === true;
+
+  if (!tiers && !isPublic) {
+    warnings.push(
+      schema.ownershipCheck
+        ? "no tiers — answers on the deprecated /public/actions route at the caller's highest grant. Move ownershipCheck to tiers + target."
+        : "no tiers and no ownershipCheck — any caller with the invoke grant can name any record the API accepts. Add tiers + target.",
+    );
+  }
+  if (isPublic && schema.isFunction === false) {
+    warnings.push("a public action — anyone on the internet can run it, with no token.");
+  }
+  if (tiers && schema.callerParameters && !schema.target) {
+    warnings.push("caller-scoped: the API is handed the caller's ids and must filter by them itself.");
+  }
+  const loose = (schema.requestParameters ?? []).filter((p) => p.unchecked).map((p) => p.uniqueName);
+  if (loose.length) {
+    warnings.push(`unchecked parameter(s) — any record id the caller sends reaches the API as sent: ${loose.join(", ")}.`);
+  }
+  return warnings;
+}
+
 /* ── permissions_sync -> HCL ─────────────────────────────────────────── */
 
 function emitPermissionsSync(defaults, tableRefs, apiRefs) {
@@ -881,14 +910,19 @@ if (apis.length) {
     // Take the schema from the per-route endpoint, not the definitions listing:
     // the listing is the *resolved* view (derived apiType, explicit nulls),
     // while schema_json has to match the published bytes or every plan drifts.
+    // That keeps tiers / target / callerParameters exactly as published. The
+    // listing is only a fallback, so drop what it adds: the derived fields, and
+    // the nulls it reports for settings a definition doesn't have (a published
+    // "tiers": null would read as a tiered definition with no tiers).
     const stored = await adminGet(`${scope}/custom-api-manager/${def.routeName}`);
-    writeFileSync(
-      join(outDir, "schemas", fileName),
-      `${JSON.stringify(stored.schema ?? def, null, 2)}\n`,
-      "utf8",
+    const fallback = Object.fromEntries(
+      Object.entries(def).filter(([k, v]) => v !== null && k !== "source" && k !== "apiType"),
     );
+    const schema = stored.schema ?? fallback;
+    writeFileSync(join(outDir, "schemas", fileName), `${JSON.stringify(schema, null, 2)}\n`, "utf8");
     blocks.push(
       [
+        ...customApiWarnings(schema).map((w) => `# CHECK: ${w}`),
         `resource "dataversecontact_custom_api" "${label}" {`,
         "  scope       = var.scope",
         `  route_name  = ${hclString(def.routeName)}`,

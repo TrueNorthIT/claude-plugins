@@ -16,7 +16,7 @@ Base: `/api/v2/{scope}/{tier}/…` where `{tier}` is `me`, `team`, `all` or
 | `/lookup/{table}?search=` | `GET` | Type-ahead. Returns a trimmed shape for pickers, not full rows |
 | `/aggregate/{table}?aggregate=count&groupBy=` | `GET` | Counts by a grouping field |
 | `/changes/{table}?deltaToken=` | `GET` | Delta query, on routes with change tracking published |
-| `/public/actions/{name}[/{id}]` | `GET`, `POST` | Custom APIs. The **only** action path there is, for every caller — and not public. See below |
+| `/actions/{name}[/{id}]` | `GET`, `POST` | Custom APIs, on the tiers each API lists. See below |
 
 The `public` tier serves list, single record and actions only — no lookup, no
 aggregate, no changes.
@@ -38,35 +38,25 @@ limiting of its own — see `security.md`.
 
 Everywhere else `public` writes are a 405 `Public access is read-only`.
 
-### `/public/actions/` is not public
+### Custom APIs: `/{tier}/actions/{name}[/{id}]`
 
-The path segment says `public` and the routing only accepts it under `public`,
-but the auth requirements have nothing to do with the tier:
+A scope can publish Dataverse custom APIs — and Dataverse's own messages, such
+as `CloseIncident` or `ExpandCalendar` — as routes. Each answers on the tiers
+its definition lists, and **the URL picks the tier**: a caller holding
+`{name}:invoke:all` who calls `/me/actions/…` is checked as `me`.
 
-| The custom API declares | What a call needs |
-|---|---|
-| nothing (the default) | a valid bearer token, a **resolved Dataverse contact**, and the `invoke` permission |
-| `publicInvoke: true` | nothing |
+| Tier | Send | Permission | The record is checked against |
+|---|---|---|---|
+| `public` | nothing | none | nothing — anyone may call it |
+| `me` | bearer token (+ `X-Company-Id`) | `{name}:invoke` | the caller's contact |
+| `team` | bearer token (+ `X-Company-Id`) | `{name}:invoke:team` | the selected company's account |
+| `all` | bearer token | `{name}:invoke:all` | the target's filters only — it must exist |
 
-So a client that expects `/public/actions/…` to work without a token gets a 401
-from the token validator, or a 404 if the token is fine but no contact matches —
-the same contact-resolution failure described in `auth.md`, reached by a path
-that does not look like it should need a contact at all.
-
-The permission is the custom API's own `requiredPermission`, which defaults to
-`{name}:invoke`. It obeys the ordinary tier grammar, so `{name}:invoke:team` and
-`{name}:invoke:all` both satisfy it — see `permissions.md`.
-
-This is the only action route. `/{scope}/actions/{name}` is a 404, and
-`/{scope}/me/actions/{name}` falls through to table routing
-(`Unknown table: actions`). Invoke grants are live on it: the caller's highest
-invoke tier is also what an `ownershipCheck` verifies against — their contact,
-their account, or (at `all`) only that the record exists.
-
-The SDK's `client.public.invokeFunction` / `invokeAction` never send a token, so
-they can only call `publicInvoke` APIs. Call an authenticated one with
-`client.me.invokeFunction` / `invokeAction` (SDK 1.24.0 and later) — see
-`sdk.md`.
+A tier the API doesn't list is a 404. The permission subject is the API's own
+`requiredPermission` subject, by default its route name; grants obey the usual
+implication (`invoke:all` → `invoke:team` → `invoke`) — see `permissions.md`.
+`me` and `team` need a resolved contact; `all` resolves one best-effort, as
+`/all` does for tables.
 
 **`GET` invokes a function, `POST` invokes an action**, and the handler checks
 this before anything else. Getting it the wrong way round is a 405 that names
@@ -75,6 +65,57 @@ the right verb:
 ```
 Custom API "expand-calendar" is a function — use GET, not POST
 ```
+
+Functions take their inputs in the query string, actions in a JSON body. The
+response is always `{ "apiType": "function" | "action", "data": {…} | null }`.
+
+**The record goes in the path, never the body.** Which record an API acts on —
+and how that's checked — depends on its definition's shape:
+
+| Shape | The id in the path | Definition carries |
+|---|---|---|
+| **Bound** to a record | the record Dataverse runs the API on (`incidents({id})/Microsoft.Dynamics.CRM.X`) | `target` = the bound table |
+| **Unbound, on a record** | written into the parameter `target.recordIdPath` names | `target` + `recordIdPath` |
+| **Unbound, caller-scoped** | none — a path id is a 400 | `callerParameters` (`contactId` / `accountId`) filled from the token |
+
+`target.table` names a published route, and the check then follows that route's
+own contact and account paths (multi-hop and reverse joins included) plus its
+filters. An inline target (`dataverseTable`, `primaryKey`, `contactColumn`,
+`accountColumn`) covers a table that isn't a route.
+
+For an unbound API the server overwrites whatever the client sent at
+`recordIdPath` with the path id, in the shape the parameter needs — a raw guid,
+an action's `{ "@odata.type": "Microsoft.Dynamics.CRM.incident", "incidentid": … }`,
+a function's parameter alias, or `"/incidents({id})"` for an `…@odata.bind`
+field. If the body named a *different* record there, the call is a 400.
+`callerParameters` are overwritten the same way, silently.
+
+```http
+POST /api/v2/default/me/actions/close-incident/{caseId}
+{ "IncidentResolution": { "subject": "Resolved online" }, "Status": 5 }
+```
+
+The checks, in order: the API exists (404) and the verb fits (405); the tier is
+listed (404); the path id is a GUID, present when the API acts on a record and
+absent when it doesn't (400); auth and the tier's permission (401 / 403); the
+record belongs to the caller for that tier (404 — the same answer whether it is
+someone else's or doesn't exist); required parameters are present after the
+server has filled its own (400). A definition the save rules should have caught
+— its target table unpublished, or not the bound table — fails closed with a
+500 before anything reaches Dataverse.
+
+**Definitions published before tiers existed** (no `tiers` field) keep working.
+`publicInvoke: true` means `public`. A signed-in call on
+`/public/actions/{name}` still works for them, taking the tier from the caller's
+*highest* grant and applying the old `ownershipCheck`, but it is deprecated:
+the response carries `Deprecation: true` and a `Link` to the tiered URL. The
+same API also answers on `/{tier}/actions/{name}` — `me` if its
+`ownershipCheck` has a `contactColumn`, `team` if it has an `accountColumn`, and
+`all`.
+
+In the SDK, `client.me` / `client.team` / `client.all` `.invokeFunction` /
+`.invokeAction` call the tier's route with the token (SDK 1.26.0 and later);
+`client.public` sends none. MCP has `invoke_custom_api`. See `sdk.md`.
 
 ### Why there is no delete
 

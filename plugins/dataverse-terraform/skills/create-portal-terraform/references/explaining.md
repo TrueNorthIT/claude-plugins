@@ -61,7 +61,7 @@ column of its own, so it inherits ownership from the parent that points at it:
 | `all` | Read every row in the table |
 | `write` / `create` | Modify or add, at the matching scope (`:team`, `:all`) |
 | `lookup` | Use the type-ahead route |
-| `invoke` | Call a custom API |
+| `invoke` | Call a custom API on its own records (`me`); `invoke:team` on the company's; `invoke:all` on any. Only on the tiers the API lists in its `tiers` |
 
 A route with no entry at all is not readable — unless it has a
 `permission_group` pointing at a route that does have one, or `public_read`.
@@ -82,7 +82,7 @@ even when they are correct and intentional:
 
 | Construct | Why it matters |
 |---|---|
-| `all`, or any action ending in `:all` (`write:all`, `lookup:all`, `invoke:all`) | The route ignores row scoping entirely — every caller sees every row. **In `default_permissions` it is a finding, not a style point:** defaults reach every token the scope accepts, including callers with no contact and, unless the scope has its own audience, users of other portals on the deployment. An `:all` invoke grant reduces an `ownershipCheck` to "the record exists" |
+| `all`, or any action ending in `:all` (`write:all`, `lookup:all`, `invoke:all`) | The route ignores row scoping entirely — every caller sees every row. **In `default_permissions` it is a finding, not a style point:** defaults reach every token the scope accepts, including callers with no contact and, unless the scope has its own audience, users of other portals on the deployment. An `invoke:all` grant opens `/all/actions/…`, which checks only that the record exists |
 | `team` | As narrow as the account model. Under a catch-all account ("Citizens") it is every citizen |
 | `public_read = true` | Unauthenticated. Anyone on the internet can read it — every column in `fields`, every `expand`, every row its `filters` allow |
 | `public_create = true` | Unauthenticated POST. Anyone can insert rows; `create_default` binds nothing and lookups go unchecked, so a writable lookup here lets anyone attach a record to any contact |
@@ -100,8 +100,11 @@ even when they are correct and intentional:
 | an empty `default_select`, or an `expand` with no `field` blocks | Read as "no projection" — whole rows come back |
 | a notes or activities route joined through a parent | Returns every child of the caller's rows, staff-only ones included; `write` lets the caller edit them |
 | `permission_group` | The child opens to every grant on the parent subject, per-person `:all` grants included |
-| `publicInvoke` on a custom API | Callable by anyone, unauthenticated, and any `ownershipCheck` is skipped |
-| a mutating custom API with no `ownershipCheck` | Nothing ties the call to the caller's own records |
+| `public` in a custom API's `tiers` (or `publicInvoke`) | Callable by anyone, unauthenticated, with no record check |
+| a custom API with no `tiers` | Legacy: only its old `ownershipCheck` ties a call to the caller — and without one, nothing does. It also answers the deprecated `/public/actions` route at the caller's highest grant |
+| a custom API's `target` | Says whose record the API may act on, per tier: name the table and the path it checks through (`target.table` uses that route's own join). On `all`, only that the record exists |
+| `callerParameters` | The API is told who called and must filter by it itself — the server checks nothing else |
+| a request parameter with `"unchecked": true` | Any record id the caller sends there reaches the API as sent |
 | a field without `read_only` | The citizen can set it, on create and PATCH — check that is intended for status, owner and identifier columns |
 
 ## Explaining what an apply will do
