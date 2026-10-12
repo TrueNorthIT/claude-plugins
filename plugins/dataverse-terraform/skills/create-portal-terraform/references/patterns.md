@@ -343,6 +343,17 @@ it `read_only` on every route anyway. Fill it on existing contacts before
 switching — switching changes which contact each person signs in as, and anyone
 whose address isn't there yet stops being recognised.
 
+**Only some contacts may sign in.** If the customer's Dataverse holds contacts
+who must not get portal access, set `contact_filters` (provider v1.4.0+) to the
+conditions a contact must meet, e.g. `contact_filters = ["cpa_portaluser eq true"]`.
+A contact with the email that fails them gets a `403` with
+`code: "contact_not_enabled"` ("not set up for online access") on every call,
+and `POST /me/register` won't create a second contact to get round it. A
+self-registered contact won't meet them unless something sets the column, so
+pair them with officer provisioning, or a flow that switches the contact on.
+Keep every column the filters read `read_only` on every route: a caller who can
+write it can switch themselves on.
+
 ## Field-level gotchas
 
 **Polymorphic navigation properties are not fields.** `customerid` on a case
@@ -363,6 +374,7 @@ choose read-only.
 
 | Column | Writable, it lets the caller… |
 |---|---|
+| a column the scope's `contact_filters` read, on any route | switch themselves on: set `cpa_portaluser` (or whatever the filter checks) on their own contact and sign in. With `write:team` or above, switch a colleague on |
 | the sign-in column on the contact route (`emailaddress1`, or the scope's `contact_email_column`) | move the key the API matches their sign-in to. With `write:team` or `write:all` on contacts, set a colleague's address to their own and sign in as them |
 | the company link (`parentcustomerid`) | move themselves into another company's `team` |
 | any column a join step follows | change whose a row is |
@@ -466,7 +478,7 @@ applying a new route, or a change to one, check:
 | 1 | No `all`, and no action ending in `:all`, in `default_permissions` | Every row, to anyone who can sign in |
 | 2 | `team` granted only where the account model really groups colleagues | Every citizen's rows, under a catch-all account |
 | 3 | `fields` holds only what the portal shows or writes | Internal columns, selectable by every reader |
-| 4 | Identity and ownership columns `read_only`: the sign-in column (`emailaddress1` or `contact_email_column`), the company link, join-step columns, `create_default` fields, `join.domain_field` | A caller changing who they are or whose a row is |
+| 4 | Identity and ownership columns `read_only`: the sign-in column (`emailaddress1` or `contact_email_column`), every column `contact_filters` read, the company link, join-step columns, `create_default` fields, `join.domain_field` | A caller changing who they are or whose a row is |
 | 5 | Every writable lookup has a `lookup_table` this scope publishes | Lookups pointed at other people's rows, unchecked |
 | 6 | `default_select` not empty; every `expand` lists its fields, none revealing more than the parent should | Whole rows, or staff details, returned |
 | 7 | No `fetch_xml`, or one scoped by `{{contactid}}` / `{{accountid}}` | The same rows for every caller |

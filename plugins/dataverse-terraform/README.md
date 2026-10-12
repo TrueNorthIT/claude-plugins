@@ -180,6 +180,8 @@ dataverse-terraform/
 | `Provider produced inconsistent result after apply` on `bind_field`, `field_count`, `lookup_search_contains` or `aliases` | Provider older than v1.1.1. Run `terraform init -upgrade` and commit `.terraform.lock.hcl`. If a create failed, the table is tainted: `terraform untaint` it before applying, or the next apply deletes it permanently |
 | `company_model { … }` won't parse | It's a nested attribute, not a block: `company_model = { … }` |
 | `An argument named "contact_email_column" is not expected here` | Provider older than v1.2.0. Run `terraform init -upgrade` and commit `.terraform.lock.hcl` |
+| `An argument named "contact_filters" is not expected here` | Provider older than v1.4.0. Run `terraform init -upgrade` and commit `.terraform.lock.hcl` |
+| Everyone gets `403 … not set up for online access` (`contact_not_enabled`) | Their contacts don't meet the scope's `contact_filters` — set the column on the contacts, or loosen the filter |
 | Nobody is recognised after setting `contact_email_column` | Existing contacts don't have their address in that column yet — fill it, or remove the setting |
 | A custom API shows a `# whitespace changes` diff | Benign. State holds the API's compact JSON, the file is pretty-printed; one apply settles it |
 | Publishing a custom API fails with a 400 about `target`, `recordIdPath`, `callerParameters` or `unchecked` | The API's rules for tiered custom APIs (API 1.26.0+): a bound API's target must be the table Dataverse binds it to, and a record parameter must be checked or marked `unchecked`. The message names the fix |

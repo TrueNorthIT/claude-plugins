@@ -386,6 +386,7 @@ resource "dataversecontact_permissions_sync" "scope" {
 | `company_model` | Nested **attribute** (`= { … }`, not a block). `strategy` is `parent-account` or `associated-accounts`; the latter takes `associated_accounts = { relationship, account_id_field, account_name_field, fetch_xml }`. |
 | `join` | Nested **attribute**. `strategy` (only `domain-list` today), `domain_field`, `require_match`. The `domain_field` column decides who may join each company: keep it staff-maintained, `read_only` (or absent) on every route, and free of shared or consumer domains — the API refuses only a short built-in list such as gmail.com. |
 | `contact_email_column` | **v1.2.0+.** The contact column people sign in with, as a logical name (`emailaddress2`, `cr123_portalemail`). Omitted, it's the API's default: `CONTACT_EMAIL_COLUMN` on the deployment if set, else `emailaddress1`. Sign-in matches the token's email on it, `POST /me/register` and `create_contact` write the address there, and the API refuses updates that would change it. Lowercase logical names only, checked at plan. Fill it on existing contacts before switching — switching changes which contact each person signs in as. |
+| `contact_filters` | **v1.4.0+.** List of OData conditions a contact must also meet to sign in, all of which must hold, written like a table's `filters`: `["cpa_portaluser eq true"]`. A contact with the email that fails them is **not enabled**: every call answers `403` with `code: "contact_not_enabled"`, `POST /me/register` refuses instead of creating a second contact, and a self-registered contact that fails them can't get in either. The API runs them against the scope's contacts before saving, so a filter Dataverse can't run fails the apply. Up to 10, 500 characters each. |
 | `triggers` | Map of strings — change any value to force a re-publish. |
 
 Computed: `id` (the scope name), `permission_count`.
@@ -580,6 +581,6 @@ translating a published schema by hand:
 | `parentTable` (`table`, `navigationProperty`) | `parent_table` (`table`, `navigation_property`) |
 | `expands[]` (`lookupField`, `relatedTable`, `fields[]`) | `expand` (`lookup_field`, `related_table`, `field` blocks) |
 | `fields{}` (`readOnly`, `lookupTable`, `valueField`, `bindField`) | `fields` map (`read_only`, `lookup_table`, `value_field`, `bind_field`) |
-| defaults: `permissions`, `allowSelfRegister`, `companyModel`, `join`, `contactEmailColumn` | `default_permissions`, `allow_self_register`, `company_model`, `join`, `contact_email_column` |
+| defaults: `permissions`, `allowSelfRegister`, `companyModel`, `join`, `contactEmailColumn`, `contactFilters` | `default_permissions`, `allow_self_register`, `company_model`, `join`, `contact_email_column`, `contact_filters` |
 
 `scripts/export-scope.mjs` does this translation for a whole scope.

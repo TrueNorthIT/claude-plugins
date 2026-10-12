@@ -281,7 +281,8 @@ this order:
    end of `references/patterns.md`. The API enforces exactly what the config
    says, so a route can plan, apply and work in the portal and still leak:
    a writable sign-in column (`emailaddress1`, or the scope's
-   `contact_email_column`), a lookup with no `lookup_table`, an `expand`
+   `contact_email_column`), a writable column the scope's `contact_filters`
+   read, a lookup with no `lookup_table`, an `expand`
    that publishes a staff email, notes that include staff-only ones.
 
 ### B4. Plan, apply, verify

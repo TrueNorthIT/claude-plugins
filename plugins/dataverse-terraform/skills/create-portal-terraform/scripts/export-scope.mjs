@@ -410,6 +410,10 @@ function emitPermissionsSync(defaults, tableRefs, apiRefs) {
     // Left out, a re-apply would put sign-in back on emailaddress1.
     add(`  contact_email_column = ${hclString(defaults.contactEmailColumn)}`);
   }
+  if (defaults.contactFilters?.length) {
+    // Left out, a re-apply would let every contact with the email sign in.
+    add(`  contact_filters = ${hclList(defaults.contactFilters, 2)}`);
+  }
 
   if (defaults.companyModel) {
     const cm = defaults.companyModel;
@@ -866,6 +870,12 @@ blocks.push(
             (storedDefaults.contactEmailColumn ? "." : " — the API's default, not set in this config."),
         ]
       : []),
+    ...(storedDefaults.contactFilters?.length
+      ? [
+          `# Sign-in: only contacts matching contact_filters count; any other contact with the email` +
+            ` gets a 403 "not set up for online access".`,
+        ]
+      : []),
     ...(publicRoutes.length
       ? [`# Public tier: ${publicRoutes.map((d) => d.routeName).join(", ")}.`]
       : []),
@@ -880,8 +890,10 @@ blocks.push(
     "  required_providers {",
     "    dataversecontact = {",
     '      source  = "TrueNorthIT/dataversecontact"',
-    // contact_email_column arrived in provider v1.2.0.
-    `      version = "${storedDefaults.contactEmailColumn ? ">= 1.2.0" : ">= 1.1.1"}, < 2.0.0"`,
+    // contact_email_column arrived in provider v1.2.0, contact_filters in v1.4.0.
+    `      version = "${
+      storedDefaults.contactFilters?.length ? ">= 1.4.0" : storedDefaults.contactEmailColumn ? ">= 1.2.0" : ">= 1.1.1"
+    }, < 2.0.0"`,
     "    }",
     "  }",
     "}",
