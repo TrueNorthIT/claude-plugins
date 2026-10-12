@@ -64,12 +64,12 @@ For the URL, tier, and project name: state what you assumed in one sentence befo
 
 ## Version check
 
-**Expected plugin version: 0.17.0**
+**Expected plugin version: 0.18.0**
 
 Before doing any work, verify the installed plugin version. Read the plugin manifest at `../../.claude-plugin/plugin.json` (relative to this skill file) using the Read tool:
 
-- If the `version` field matches `0.17.0` — proceed.
-- If the `version` field is **older** — tell the user: "Your dataverse-portal plugin is v`<installed>` but this skill expects v0.17.0. Run `/plugin marketplace update truenorthit` and then `/reload-plugins` to get the latest version." Then stop.
+- If the `version` field matches `0.18.0` — proceed.
+- If the `version` field is **older** — tell the user: "Your dataverse-portal plugin is v`<installed>` but this skill expects v0.18.0. Run `/plugin marketplace update truenorthit` and then `/reload-plugins` to get the latest version." Then stop.
 - If the file cannot be read — warn the user but proceed.
 
 ## Workflow
@@ -701,7 +701,10 @@ Likewise `fetchPage`: hand it the `page.next` the API returned and nothing else.
 ```ts
 // What a citizen reads. The no-contact 404 gets NoContactNotice instead (above).
 export function friendlyError(err: unknown): string {
-  const status = (err as { status?: number })?.status;
+  const { status, code } = (err ?? {}) as { status?: number; code?: string };
+  // Stable codes (SDK 1.26.0+) say why a signed-in person can't get in at all.
+  if (code === "contact_not_enabled") return "Your account isn't set up for online access yet. Please contact us.";
+  if (code === "access_withdrawn") return "Your access has been withdrawn. Please contact us.";
   if (status === 403) return "You don't have access to this.";
   if (status === 404) return "We couldn't find that.";
   return "Something went wrong. Please try again.";

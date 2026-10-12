@@ -175,6 +175,26 @@ by an administrator"), and they can't sign themselves up again; whoami still
 answers, so a portal can say why. A brand-new person with no contact at all is
 unaffected. Contact matches are cached for five minutes, so allow that long.
 
+### Contacts a scope doesn't let in (contact filters)
+
+A scope can narrow which contacts count with `contactFilters` in its
+defaults (Terraform `contact_filters`, API 1.26.0 and later): OData conditions
+a contact must also meet, e.g. `cpa_portaluser eq true`. A contact that has the
+email but fails them is **not enabled**, which is different from having no
+contact:
+
+| Call | Answer |
+|---|---|
+| `/me`, `/team`, `/all`, MCP, private choices | **403**, `code: "contact_not_enabled"`, "Your account isn't set up for online access. Contact us to have it turned on." |
+| `POST /me/register` | the same 403 — it won't create a second contact to get round the filters |
+| `GET /me/claimable-companies` | leaves out a company whose contact for the email is filtered out |
+| `/me/whoami` | **200**, with that contact not resolved |
+
+A person with no contact at all can still register where the scope allows it,
+but the new contact meets the filters only if something sets the column, so
+until then they get the same 403. The deactivation 403 carries
+`code: "access_withdrawn"`. Match on `code`, not the message.
+
 Because the address is the join, API 1.24.0 and later refuse any update that
 changes a contact's `emailaddress1`, whatever the route declares. Mark it
 read-only on every route that exposes contacts anyway, so a client never offers

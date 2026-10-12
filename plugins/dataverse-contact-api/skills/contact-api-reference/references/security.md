@@ -206,6 +206,12 @@ Keep `contact:write:team` and `contact:write:all` out of defaults altogether.
   they can't sign themselves up again. Older deployments match inactive
   contacts, so there, block the sign-in at the identity provider and change
   the contact's `emailaddress1`.
+- A scope can also admit only contacts meeting its `contactFilters` (API
+  1.26.0 and later): any other contact with the email gets a 403
+  `contact_not_enabled` everywhere, and can't register a second one. The
+  filters are only as strong as the columns they read: a route that lets a
+  caller write one lets them switch themselves on, so keep those columns
+  read-only on every route.
 - Neither is instant. A token already issued keeps working until it expires
   (about an hour), because the API checks only its signature, issuer, audience
   and expiry; contact matches and permissions are also cached for five minutes.

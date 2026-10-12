@@ -94,6 +94,7 @@ even when they are correct and intentional:
 | `create_default` | Records created here are silently bound to the caller. If the bound column is writable in `fields`, the caller can re-point it afterwards |
 | a writable sign-in column on a contact route — `emailaddress1`, or the scope's `contact_email_column` | It is the sign-in key the API matches tokens to. Writable, a caller can move it — and with `write:team` or above, take over a colleague's identity |
 | `contact_email_column = "x"` | People sign in as the contact whose `x` holds their email, not the deployment's default (`CONTACT_EMAIL_COLUMN` on the API, else `emailaddress1`); self-registration writes the address to `x`. Changing it changes which contact each person is |
+| `contact_filters = [...]` | Only contacts meeting these conditions sign in; any other contact with the email gets a 403 `contact_not_enabled`, and register won't create a duplicate. A column the filters read that is writable on a route lets a caller switch themselves on |
 | a writable company link (`parentcustomerid`) or join-step column | Lets a caller change which company they're in, or whose a row is |
 | a writable lookup with no `lookup_table`, or one naming a route this scope doesn't publish | The API can't check the target belongs to the caller, so it doesn't |
 | an `expand` | Its fields come from whatever row the lookup points at, unscoped. Check what they reveal — a staff member's email, another customer's name |

@@ -179,5 +179,7 @@ dataverse-terraform/
 | `Provider produced inconsistent result after apply` on `bind_field`, `field_count`, `lookup_search_contains` or `aliases` | Provider older than v1.1.1. Run `terraform init -upgrade` and commit `.terraform.lock.hcl`. If a create failed, the table is tainted: `terraform untaint` it before applying, or the next apply deletes it permanently |
 | `company_model { … }` won't parse | It's a nested attribute, not a block: `company_model = { … }` |
 | `An argument named "contact_email_column" is not expected here` | Provider older than v1.2.0. Run `terraform init -upgrade` and commit `.terraform.lock.hcl` |
+| `An argument named "contact_filters" is not expected here` | Provider older than v1.3.0. Run `terraform init -upgrade` and commit `.terraform.lock.hcl` |
+| Everyone gets `403 … not set up for online access` (`contact_not_enabled`) | Their contacts don't meet the scope's `contact_filters` — set the column on the contacts, or loosen the filter |
 | Nobody is recognised after setting `contact_email_column` | Existing contacts don't have their address in that column yet — fill it, or remove the setting |
 | A custom API shows a `# whitespace changes` diff | Benign. State holds the API's compact JSON, the file is pretty-printed; one apply settles it |
