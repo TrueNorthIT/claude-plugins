@@ -168,7 +168,9 @@ What the server checks, on a definition with `tiers`:
   inline columns. On `all` it must exist and pass the target's filters.
 - **That the API acts on that record.** A bound API runs on it; an unbound one
   has it written into `recordIdPath`, and a body naming a different record is a
-  400. Saving refuses a bound API whose target is a different table.
+  400. The binding is read from Dataverse when the definition is saved, and
+  saving refuses a bound API whose target isn't the table Dataverse binds it
+  to.
 - **The caller's own ids** in `callerParameters`, overwriting the client's.
 - **Only declared parameters** are passed on.
 

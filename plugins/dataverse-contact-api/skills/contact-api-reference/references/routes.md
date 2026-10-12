@@ -74,9 +74,15 @@ and how that's checked — depends on its definition's shape:
 
 | Shape | The id in the path | Definition carries |
 |---|---|---|
-| **Bound** to a record | the record Dataverse runs the API on (`incidents({id})/Microsoft.Dynamics.CRM.X`) | `target` = the bound table |
+| **Bound** to a record | the record Dataverse runs the API on (`incidents({id})/Microsoft.Dynamics.CRM.X`) | `target` = a route on the table Dataverse binds it to |
 | **Unbound, on a record** | written into the parameter `target.recordIdPath` names | `target` + `recordIdPath` |
 | **Unbound, caller-scoped** | none — a path id is a 400 | `callerParameters` (`contactId` / `accountId`) filled from the token |
+
+A definition doesn't say whether the API is a function, or bound, or to which
+table: that is read from Dataverse's `customapis` table when the definition is
+saved, and a definition stating it differently is refused. Only built-in
+messages (`CloseIncident`, `ExpandCalendar`) and classic actions, which aren't
+in `customapis`, declare `isFunction` / `bindingType` themselves.
 
 `target.table` names a published route, and the check then follows that route's
 own contact and account paths (multi-hop and reverse joins included) plus its

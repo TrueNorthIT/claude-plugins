@@ -226,10 +226,15 @@ and the publish rules are in `provider-reference.md`; the decisions are these.
 
 | The Dataverse API… | Shape | Definition |
 |---|---|---|
-| is bound to a table | bound | `bindingType = "entity"`, `target = { table = <the route on that table> }` |
+| is bound to a table | bound | `target = { table = <the route on that table> }` |
 | takes the record as a parameter | unbound on a record | `target = { table = …, recordIdPath = "<param>" }` |
 | takes no record — it acts for the caller | caller-scoped | `callerParameters = { "<param>": "contactId" }` |
 | returns data anyone may see, changes nothing | public | `tiers = ["public"]`, no target |
+
+Don't write `isFunction`, `bindingType` or the bound table: publishing reads
+them from Dataverse's `customapis` table, and refuses a definition that states
+them differently. Only a built-in message (`CloseIncident`, `ExpandCalendar`) or
+a classic process action, which aren't in `customapis`, declares them.
 
 **Point `target.table` at the route that already scopes that record.** The
 check then reuses that route's join — multi-hop, reverse, company model — so
@@ -239,8 +244,6 @@ the API can't drift from what the citizen can read:
 {
   "routeName": "reschedule-booking",
   "dataverseUniqueName": "tn_RescheduleBooking",
-  "isFunction": false,
-  "bindingType": "global",
   "tiers": ["me"],
   "target": { "table": "servicebooking", "recordIdPath": "ServiceBookingId" },
   "callerParameters": { "CitizenId": "contactId" },

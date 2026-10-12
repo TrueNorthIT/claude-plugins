@@ -161,7 +161,6 @@ each tier listed — and the URL's tier decides the check:
   "dataverseUniqueName": "ExpandCalendar",
   "isFunction": true,
   "bindingType": "entity",
-  "boundEntityLogicalName": "calendar",
   "boundEntitySetName": "calendars",
   "tiers": ["public"],
   "requestParameters": [
@@ -176,8 +175,11 @@ resource calendar into free slots — data an anonymous visitor to a booking pag
 is meant to see. That is the bar for `public`; publish anything else on `me`,
 `team` or `all`.
 
+`ExpandCalendar` declares its binding because it's a built-in message — see
+"The binding comes from Dataverse" below.
+
 Computed: `id`, `source`, `dataverse_unique_name`, `is_function`,
-`binding_type`.
+`binding_type` (the last two as Dataverse reports them).
 
 > **Rollout.** `tiers`, `target` and `callerParameters` need an API release
 > that has them (API / SDK 1.26.0). An older deployment reads a definition with
@@ -186,6 +188,25 @@ Computed: `id`, `source`, `dataverse_unique_name`, `is_function`,
 > scope any older deployment serves. A public one can keep
 > `"publicInvoke": true` alongside `tiers: ["public"]` — both releases read
 > that the same way.
+
+### The binding comes from Dataverse
+
+Whether an API is a function or an action, whether it's bound, and to which
+table, are read from Dataverse's `customapis` table when the definition is
+published. For those APIs, **leave `isFunction`, `bindingType`,
+`boundEntityLogicalName` and `boundEntitySetName` out**; a definition that
+states one differently from Dataverse is refused with a 400 naming the field. A
+bound API is called on its `target` table's entity set, which must be the table
+Dataverse binds it to; with no target the set comes from the table's metadata.
+
+Built-in messages (`CloseIncident`, `ExpandCalendar`) and classic process
+actions aren't in `customapis`, so their definitions still declare
+`isFunction` and `bindingType` — plus `boundEntitySetName`, or a `target`, when
+bound. A wrong entity set there still can't run the API on another table:
+Dataverse answers a bound call on the wrong set with a 404.
+
+The provider never refreshes `schema_json` from the server, so the fields the
+API fills in don't show as drift.
 
 ### The CustomApiHint schema in full
 
@@ -197,10 +218,10 @@ rules below when it is published, so the apply fails rather than publishing it.
 |---|---|---|
 | `routeName` | yes | URL segment under `/{tier}/actions/{routeName}`. Also the permission subject. |
 | `dataverseUniqueName` | yes | The Custom API's unique name in Dataverse — used in the OData URL. Dataverse's own messages (`CloseIncident`, `ExpandCalendar`) work too. |
-| `isFunction` | yes | `true` = GET, read-only. `false` = POST, has side effects. |
-| `bindingType` | yes | `global` (service root), `entity` (bound to one record), `entityCollection` (bound to a set). |
-| `boundEntityLogicalName` | for bound | Logical entity name, e.g. `calendar`. |
-| `boundEntitySetName` | for `entity` | Entity set name, e.g. `calendars`. Required on a bound API. |
+| `isFunction` | only if not in `customapis` | `true` = GET, read-only. `false` = POST, has side effects. Read from Dataverse otherwise. |
+| `bindingType` | only if not in `customapis` | `global` (service root), `entity` (bound to one record), `entityCollection` (bound to a set). Read from Dataverse otherwise. |
+| `boundEntityLogicalName` | no | Logical entity name, e.g. `calendar`. Read from Dataverse when it's in `customapis`. |
+| `boundEntitySetName` | only for a bound API not in `customapis`, without a `target` | Entity set name, e.g. `calendars`. Otherwise taken from the `target` table or the entity's metadata. |
 | `tiers` | yes, for new definitions | `public`, `me`, `team`, `all` — the URLs the API answers on. Without it the definition is legacy (below). |
 | `target` | for `me` / `team` on a record | The record the API acts on and how ownership is checked — below. |
 | `callerParameters` | no | `{ "<param>": "contactId" }` or `"accountId"` — parameters the server fills from the verified caller. |
@@ -223,17 +244,14 @@ Custom APIs are **not row-scoped** the way tables are; `target` is what stops a
 caller acting on someone else's record. The record always goes in the URL, so
 the record Dataverse acts on is the record that was checked.
 
-**Bound to a record** — the path id is the bound record. `target` must be the
-bound table, with no `recordIdPath`:
+**Bound to a record** — the path id is the bound record. `target` must be a
+route on the table Dataverse binds the API to, with no `recordIdPath`
+(`tn_EscalateCase` is bound to `incident`; the `case` route is on `incidents`):
 
 ```json
 {
   "routeName": "escalate-case",
   "dataverseUniqueName": "tn_EscalateCase",
-  "isFunction": false,
-  "bindingType": "entity",
-  "boundEntityLogicalName": "incident",
-  "boundEntitySetName": "incidents",
   "tiers": ["me", "team"],
   "target": { "table": "case" }
 }
@@ -241,7 +259,8 @@ bound table, with no `recordIdPath`:
 
 **Unbound, acting on a record** — the path id is written into the parameter
 `recordIdPath` names, in the shape its type needs (a guid, an entity reference,
-or an `…@odata.bind` field); a body naming a different record is a 400:
+or an `…@odata.bind` field); a body naming a different record is a 400.
+`CloseIncident` is a built-in message, so it declares its binding:
 
 ```json
 {
@@ -269,8 +288,6 @@ API itself must filter by them:
 {
   "routeName": "my-upcoming-bookings",
   "dataverseUniqueName": "tn_MyUpcomingBookings",
-  "isFunction": true,
-  "bindingType": "global",
   "tiers": ["me"],
   "callerParameters": { "CitizenId": "contactId" },
   "requestParameters": [
@@ -287,8 +304,12 @@ an array is OR'd), `accountColumn` (for `team`), `recordIdPath`, `filters`.
 
 ### What publishing refuses
 
-- A bound API whose `target` is a different table from `boundEntitySetName`, or
-  that sets `target.recordIdPath`.
+- `isFunction`, `bindingType` or the bound table stated differently from
+  Dataverse; or, for an API that isn't in `customapis`, `isFunction` /
+  `bindingType` left out (and, when bound, both `boundEntitySetName` and a
+  `target`).
+- A bound API whose `target` isn't the table Dataverse binds it to, or that sets
+  `target.recordIdPath`.
 - An unbound `target` without `recordIdPath`, or a `recordIdPath` /
   `callerParameters` entry that isn't a declared request parameter. On a
   function, `recordIdPath` must be a top-level `guid` / `entityReference` /
