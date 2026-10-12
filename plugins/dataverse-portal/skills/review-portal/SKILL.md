@@ -88,7 +88,7 @@ Each is a quick read of one or two files:
 | Realtime handlers only invalidate | Any SignalR / `useRealtime` handler: it must refetch, never render the event |
 | Switching company refetches cleanly | The switcher: keys carry the company id, or the cache is cleared on switch |
 | A missing contact gets its own screen | A 404 `No Dataverse contact found` is handled as "signed in as someone we don't know", not a generic error |
-| Authenticated custom APIs send a token | `client.public.invoke*` used for an action that isn't `publicInvoke` will 401. The fix is `client.me.invoke*` (SDK 1.24.0+), not `publicInvoke` |
+| Custom APIs are called on their tier, with the record in `recordId` | `client.public.invoke*` on an API not published on `public` will 401 — the fix is `client.me.invoke*` (SDK 1.26.0+), never making it public. `client.all.invoke*` in a citizen portal is `tier-all`. A record id in `body` / `params` (`invoke-id-in-body`) is checked only by a legacy definition, if at all |
 | The dev token is dev-only | `VITE_DEMO_TOKEN` gated by `import.meta.env.DEV`, and only in `.env.development.local` |
 | Public forms aren't relying on the page | An anonymous POST "protected" by a client-side CAPTCHA has no protection; rate limiting belongs at the edge |
 

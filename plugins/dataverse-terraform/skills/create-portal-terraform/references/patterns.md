@@ -133,8 +133,8 @@ every token the scope accepts:
 
 So `all`, and every action ending in `:all` — `write:all`, `lookup:all`,
 `invoke:all` — never go in `default_permissions`. `case = ["all"]` there hands
-every case to anyone who can create an account, and `invoke:all` reduces an
-`ownershipCheck` to "the record exists". Unscoped access belongs to named staff,
+every case to anyone who can create an account, and `invoke:all` lets them run
+a custom API on any record that exists. Unscoped access belongs to named staff,
 as per-person grants.
 
 Defaults are keyed by route name, so they apply the moment a route by that name
@@ -214,6 +214,81 @@ know what each hands out:
 - **Neither has rate limiting.** The API does none of its own. A public route
   needs rate limiting or a WAF at the edge; a CAPTCHA in the portal protects
   nothing, because the endpoint can be called without the portal.
+
+## Custom APIs: scope the record, not the call
+
+A custom API runs as the API's service principal, so its definition is the
+only thing between a citizen and whatever it does. Model it like a route: say
+which tiers it answers on, and whose record each tier may name. The full schema
+and the publish rules are in `provider-reference.md`; the decisions are these.
+
+**Pick the shape from what the API takes.**
+
+| The Dataverse API… | Shape | Definition |
+|---|---|---|
+| is bound to a table | bound | `target = { table = <the route on that table> }` |
+| takes the record as a parameter | unbound on a record | `target = { table = …, recordIdPath = "<param>" }` |
+| takes no record — it acts for the caller | caller-scoped | `callerParameters = { "<param>": "contactId" }` |
+| returns data anyone may see, changes nothing | public | `tiers = ["public"]`, no target |
+
+Don't write `isFunction`, `bindingType` or the bound table: publishing reads
+them from Dataverse's `customapis` table, and refuses a definition that states
+them differently. Only a built-in message (`CloseIncident`, `ExpandCalendar`) or
+a classic process action, which aren't in `customapis`, declares them.
+
+**Point `target.table` at the route that already scopes that record.** The
+check then reuses that route's join — multi-hop, reverse, company model — so
+the API can't drift from what the citizen can read:
+
+```json
+{
+  "routeName": "reschedule-booking",
+  "dataverseUniqueName": "tn_RescheduleBooking",
+  "tiers": ["me"],
+  "target": { "table": "servicebooking", "recordIdPath": "ServiceBookingId" },
+  "callerParameters": { "CitizenId": "contactId" },
+  "requestParameters": [
+    { "uniqueName": "ServiceBookingId", "displayName": "Booking", "type": "guid" },
+    { "uniqueName": "NewSlotStart", "displayName": "New slot", "type": "datetime" },
+    { "uniqueName": "CitizenId", "displayName": "Citizen", "type": "guid" }
+  ]
+}
+```
+
+```hcl
+resource "dataversecontact_custom_api" "reschedule_booking" {
+  scope       = var.scope
+  route_name  = "reschedule-booking"
+  schema_json = file("${path.module}/schemas/RescheduleBooking.customapi.json")
+  depends_on  = [dataversecontact_table.servicebooking]
+}
+```
+
+and in `default_permissions`, keyed by the API's route name:
+`"reschedule-booking" = ["invoke"]`. Each tier in `tiers` needs its grant —
+`invoke` opens `me`, `invoke:team` opens `team` — and, as for tables, never
+`invoke:all` in defaults.
+
+**List only the tiers the portal calls.** `me` for a citizen's own records,
+`team` where colleagues act on each other's. A tier listed is a URL that
+answers.
+
+**Every record-shaped parameter is the target's, the caller's, or a decision.**
+Publishing refuses a `guid` / `entityReference` / `entity` parameter the server
+doesn't fill. Mark one `"unchecked": true` only when any record genuinely is
+acceptable there — a reference-data id, say — and say so in review.
+
+**Caller-scoped means the plugin filters.** `callerParameters` guarantees the
+id is the caller's; it doesn't stop the plugin returning someone else's rows.
+Read the plugin before granting it.
+
+**Legacy definitions** — `ownershipCheck`, no `tiers` — still publish. When you
+adopt one, convert it: `ownershipCheck` becomes `target`, add `tiers`, and
+change the portal to put the record in the URL.
+
+**Check the deployment first.** `tiers` needs API 1.26.0 or later on every
+deployment that serves the scope; an older one reads a tiered definition as a
+legacy one with no ownership check. See *Rollout* in `provider-reference.md`.
 
 ## Self-service sign-up
 
@@ -398,7 +473,7 @@ applying a new route, or a change to one, check:
 | 8 | Notes and activities filtered to what the customer should see, granted `create` not `write` | Staff-only notes shown to, and editable by, the customer |
 | 9 | `permission_group` only where the parent's audience may see the child | The child opened to every grant on the parent |
 | 10 | `public_read` / `public_create` only where anonymous use is the point; `public_create` routes with no writable lookups | Data on the open internet; records attached to strangers |
-| 11 | Custom APIs: `publicInvoke` only for read-only data anyone may see; an `ownershipCheck` on anything acting on a record | Anonymous actions; actions on other people's records |
+| 11 | Custom APIs: every definition has `tiers`; `public` only for read-only data anyone may see; a `target` on anything acting on a record on `me` / `team`; every `"unchecked": true` and `callerParameters` justified | Anonymous actions; actions on other people's records |
 | 12 | Self-registration: `domain_field` staff-only and free of shared domains | Strangers joining a company |
 
 After the apply, run the negative test for each new route:

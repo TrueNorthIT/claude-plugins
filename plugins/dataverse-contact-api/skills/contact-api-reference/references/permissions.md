@@ -28,12 +28,16 @@ So:
 | `case:write:team` | edit your team's cases |
 | `case:create` | create a case. The grant only ever exists at `me` — a `publicCreate` table needs no grant at all |
 | `case:lookup` | use the lookup route on cases |
-| `approve-request:invoke` | invoke the `approve-request` custom API |
+| `close-incident:invoke` | invoke the `close-incident` custom API on `/me/actions/` — on your own record |
+| `close-incident:invoke:team` | invoke it on `/team/actions/` — on your company's records |
 
-`invoke` takes tiers like anything else, so `approve-request:invoke:all`
-satisfies `approve-request:invoke:team` and `approve-request:invoke`. The
-subject there is the custom API's own route name, not a table's — see
-`routes.md` for the `/public/actions/` surface it guards.
+`invoke` takes tiers like anything else, so `close-incident:invoke:all`
+satisfies `close-incident:invoke:team` and `close-incident:invoke`. The subject
+there is the custom API's own route name, not a table's. Each tier's grant
+opens the matching URL — `/me/actions/{name}`, `/team/…`, `/all/…` — and only
+on the tiers the API's definition lists; see `routes.md`. The URL decides which
+check runs, not the highest grant held, so an `invoke:all` holder calling
+`/me/actions/…` is still held to their own records.
 
 A bare `case:write` is **tier `me`**, not "write anywhere". This trips people up
 because the tier is the *last* segment, so the two-segment form looks like it

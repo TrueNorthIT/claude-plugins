@@ -136,13 +136,13 @@ const LINE_RULES = [
     id: "tier-all",
     severity: "high",
     title: "Call through the `all` tier — every row in the table",
-    re: /\bclient\.all\b|\.all\.(list|get|update|lookup|aggregate|fetchPage|eachPage)\s*[<(]/,
+    re: /\bclient\.all\b|\.all\.(list|get|update|lookup|aggregate|fetchPage|eachPage|invokeFunction|invokeAction)\s*[<(]/,
   },
   {
     id: "tier-team",
     severity: "low",
     title: "Call through the `team` tier — confirm the portal means colleagues' rows",
-    re: /\.team\.(list|get|update|lookup|aggregate|fetchPage|eachPage)\s*[<(]/,
+    re: /\.team\.(list|get|update|lookup|aggregate|fetchPage|eachPage|invokeFunction|invokeAction)\s*[<(]/,
   },
   {
     id: "token-log",
@@ -234,7 +234,7 @@ const LINE_RULES = [
   {
     id: "public-invoke",
     severity: "low",
-    title: "SDK invoke on client.public — sends no token, so only reaches publicInvoke APIs",
+    title: "SDK invoke on client.public — sends no token, so only reaches custom APIs published on the public tier",
     re: /\.public\.invoke(Function|Action)\s*[<(]/,
   },
   {
@@ -416,6 +416,9 @@ const SDK = "@truenorth-it/dataverse-client";
 // 1.24.0 encodes record ids into the path and keeps fetchPage on the API's
 // origin; anything older sends the token wherever a crafted id or URL says.
 const SDK_MIN = "1.24.0";
+// 1.26.0 calls a custom API on the tier asked for (/{tier}/actions/…); before
+// it, client.me.invoke* went to /public/actions, at the caller's highest grant.
+const SDK_TIERED_INVOKE = "1.26.0";
 
 const semver = (v) => (String(v).match(/(\d+)\.(\d+)\.(\d+)/) ?? []).slice(1, 4).map(Number);
 function older(a, b) {
@@ -462,6 +465,16 @@ if (deps[SDK]) {
     add("no-generate-script", "low", `${rel(generated)} exists but no package.json script regenerates it`, join(root, "package.json"), null, null);
   }
 
+  if (version && older(version, SDK_TIERED_INVOKE)) {
+    for (const { f, text } of sources) {
+      text.split(/\r?\n/).forEach((line, i) => {
+        if (!isComment(line) && /\.(me|team|all)\.invoke(Function|Action)\s*[<(]/.test(line)) {
+          add("invoke-legacy-route", "low", `${SDK} ${version} sends this to the deprecated /public/actions route, at the caller's highest grant — 1.26.0 calls the tier you name`, f, i + 1, line);
+        }
+      });
+    }
+  }
+
   for (const { f, text } of sources) {
     const writes = /\.(create|update)\s*[<(]/.test(text);
     text.split(/\r?\n/).forEach((line, i) => {
@@ -473,6 +486,22 @@ if (deps[SDK]) {
         add("partial-write", "low", "Write payload typed as Partial<Row> — read-only columns compile", f, i + 1, line);
       }
     });
+  }
+}
+
+// A custom API acts on the record in the URL (recordId). An id carried in
+// body / params instead is checked only by a legacy definition's
+// ownershipCheck — or not at all. Multi-line calls, so read up to the close.
+const INVOKE_CALL = /\.(me|team|all|public)\.invoke(Function|Action)\s*(<[^>]*>)?\(/g;
+const ID_IN_INPUTS = /@odata\.bind|\b\w*(Id|ID|Ref)\s*:\s*[\w$.[\]`'"]/;
+for (const { f, text } of sources) {
+  for (const m of text.matchAll(INVOKE_CALL)) {
+    const call = text.slice(m.index, m.index + 600).split(/\)\s*;|\n\s*\n/)[0];
+    const inputs = call.match(/\b(body|params)\s*:\s*\{[\s\S]*/)?.[0] ?? "";
+    if (ID_IN_INPUTS.test(inputs) && !/\brecordId\s*[:,}]/.test(call)) {
+      const line = text.slice(0, m.index).split(/\r?\n/).length;
+      add("invoke-id-in-body", "medium", "Custom API given a record id in its inputs, not recordId — the API checks only the record in the URL", f, line, text.split(/\r?\n/)[line - 1]);
+    }
   }
 }
 

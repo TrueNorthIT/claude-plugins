@@ -60,7 +60,7 @@ What is *absent* here matters as much as what is present:
 | `GET` | `/{tier}/lookup/{table}?search=` | `<subj>:lookup[:team\|:all]` |
 | `GET` | `/{tier}/aggregate/{table}?aggregate=count&groupBy=` | the tier's read permission |
 | `GET` | `/{tier}/changes/{table}?deltaToken=` | the tier's read permission |
-| `GET`/`POST` | `/{scope}/public/actions/{name}` | `<name>:invoke` — **and a token and a resolved contact**, despite the `public` segment, unless the custom API sets `publicInvoke`. `GET` = function, `POST` = action |
+| `GET`/`POST` | `/{tier}/actions/{name}[/{id}]` | Custom APIs, on the tiers the API's definition lists (any other tier is a 404): `public` none, `me` `<name>:invoke`, `team` `<name>:invoke:team`, `all` `<name>:invoke:all`. `GET` = function, `POST` = action. The record goes in the path and is checked against the caller for that tier — see `references/routes.md` |
 | `GET` | `/{scope}/me/whoami` | a valid token |
 | `GET` | `/{scope}/schema[?table=]`, `/{scope}/openapi.json` | none |
 | `GET` | `/{scope}/choices/{table}[/{field}]` | none — unless the route sets `publicChoices: false`, then any permission on that subject |
