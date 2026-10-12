@@ -702,7 +702,7 @@ Likewise `fetchPage`: hand it the `page.next` the API returned and nothing else.
 // What a citizen reads. The no-contact 404 gets NoContactNotice instead (above).
 export function friendlyError(err: unknown): string {
   const { status, code } = (err ?? {}) as { status?: number; code?: string };
-  // Stable codes (SDK 1.26.0+) say why a signed-in person can't get in at all.
+  // Stable codes (SDK 1.27.0+) say why a signed-in person can't get in at all.
   if (code === "contact_not_enabled") return "Your account isn't set up for online access yet. Please contact us.";
   if (code === "access_withdrawn") return "Your access has been withdrawn. Please contact us.";
   if (status === 403) return "You don't have access to this.";

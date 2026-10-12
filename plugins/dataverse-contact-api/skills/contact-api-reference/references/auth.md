@@ -178,7 +178,7 @@ unaffected. Contact matches are cached for five minutes, so allow that long.
 ### Contacts a scope doesn't let in (contact filters)
 
 A scope can narrow which contacts count with `contactFilters` in its
-defaults (Terraform `contact_filters`, API 1.26.0 and later): OData conditions
+defaults (Terraform `contact_filters`, API 1.27.0 and later): OData conditions
 a contact must also meet, e.g. `cpa_portaluser eq true`. A contact that has the
 email but fails them is **not enabled**, which is different from having no
 contact:

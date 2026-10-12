@@ -207,7 +207,7 @@ Keep `contact:write:team` and `contact:write:all` out of defaults altogether.
   contacts, so there, block the sign-in at the identity provider and change
   the contact's `emailaddress1`.
 - A scope can also admit only contacts meeting its `contactFilters` (API
-  1.26.0 and later): any other contact with the email gets a 403
+  1.27.0 and later): any other contact with the email gets a 403
   `contact_not_enabled` everywhere, and can't register a second one. The
   filters are only as strong as the columns they read: a route that lets a
   caller write one lets them switch themselves on, so keep those columns
