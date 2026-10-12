@@ -890,9 +890,9 @@ blocks.push(
     "  required_providers {",
     "    dataversecontact = {",
     '      source  = "TrueNorthIT/dataversecontact"',
-    // contact_email_column arrived in provider v1.2.0, contact_filters in v1.3.0.
+    // contact_email_column arrived in provider v1.2.0, contact_filters in v1.4.0.
     `      version = "${
-      storedDefaults.contactFilters?.length ? ">= 1.3.0" : storedDefaults.contactEmailColumn ? ">= 1.2.0" : ">= 1.1.1"
+      storedDefaults.contactFilters?.length ? ">= 1.4.0" : storedDefaults.contactEmailColumn ? ">= 1.2.0" : ">= 1.1.1"
     }, < 2.0.0"`,
     "    }",
     "  }",

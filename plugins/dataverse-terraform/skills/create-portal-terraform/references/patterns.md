@@ -344,7 +344,7 @@ switching — switching changes which contact each person signs in as, and anyon
 whose address isn't there yet stops being recognised.
 
 **Only some contacts may sign in.** If the customer's Dataverse holds contacts
-who must not get portal access, set `contact_filters` (provider v1.3.0+) to the
+who must not get portal access, set `contact_filters` (provider v1.4.0+) to the
 conditions a contact must meet, e.g. `contact_filters = ["cpa_portaluser eq true"]`.
 A contact with the email that fails them gets a `403` with
 `code: "contact_not_enabled"` ("not set up for online access") on every call,
