@@ -89,6 +89,7 @@ Each is a quick read of one or two files:
 | Switching company refetches cleanly | The switcher: keys carry the company id, or the cache is cleared on switch |
 | A missing contact gets its own screen | A 404 `No Dataverse contact found` is handled as "signed in as someone we don't know", not a generic error |
 | Custom APIs are called on their tier, with the record in `recordId` | `client.public.invoke*` on an API not published on `public` will 401 — the fix is `client.me.invoke*` (SDK 1.26.0+), never making it public. `client.all.invoke*` in a citizen portal is `tier-all`. A record id in `body` / `params` (`invoke-id-in-body`) is checked only by a legacy definition, if at all |
+| A custom API isn't handed a flag the citizen mustn't choose | A custom API call whose `body` / `params` sets a privacy or staff-only flag (`IsPrivate: false`, a source or channel code, a status). The portal sending the safe value proves nothing: anyone can post `true`. Check the scope's `openapi.json` for the operation: if it doesn't say "Always sent as: `IsPrivate` = …", the definition should put it in `fixedParameters` (API 1.30.0+). That's a scope finding, fixed in Terraform; once it's fixed the portal can drop the field |
 | The dev token is dev-only | `VITE_DEMO_TOKEN` gated by `import.meta.env.DEV`, and only in `.env.development.local` |
 | Public forms aren't relying on the page | An anonymous POST "protected" by a client-side CAPTCHA has no protection; rate limiting belongs at the edge |
 

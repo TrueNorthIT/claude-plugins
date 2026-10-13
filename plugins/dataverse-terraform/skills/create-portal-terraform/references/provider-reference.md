@@ -225,6 +225,7 @@ rules below when it is published, so the apply fails rather than publishing it.
 | `tiers` | yes, for new definitions | `public`, `me`, `team`, `all` — the URLs the API answers on. Without it the definition is legacy (below). |
 | `target` | for `me` / `team` on a record | The record the API acts on and how ownership is checked — below. |
 | `callerParameters` | no | `{ "<param>": "contactId" }` or `"accountId"` — parameters the server fills from the verified caller. |
+| `fixedParameters` | no | `{ "<param>": <value> }` — parameters the server always sends with this value, overwriting the client's (API 1.30.0+). Needs `tiers`. |
 | `displayName` | no | Defaults to `dataverseUniqueName`. |
 | `description` | no | Shown in discovery and the OpenAPI document. |
 | `requiredPermission` | no | Defaults to `{routeName}:invoke`; only its subject is used — the tier comes from the URL. |
@@ -234,7 +235,9 @@ rules below when it is published, so the apply fails rather than publishing it.
 | `ownershipCheck` | no | Legacy only, and refused alongside `tiers` — use `target`. |
 
 Each parameter is `{ uniqueName, displayName, type, description?,
-logicalEntityName?, isOptional?, unchecked? }`. Valid `type` values: `boolean`,
+logicalEntityName?, isOptional?, unchecked?, default? }`. `default` (API
+1.30.0+) is sent when the client leaves the parameter out; the client can
+still send its own. Valid `type` values: `boolean`,
 `datetime`, `decimal`, `entity`, `entityCollection`, `entityReference`, `float`,
 `guid`, `integer`, `money`, `picklist`, `string`, `stringArray`.
 
@@ -322,6 +325,36 @@ it the apply fails with a 400 that says what to add. Don't suggest marking
 the parameter `unchecked` and passing the reference in the body instead:
 nothing would tie it to the record that was checked.
 
+**Values the definition supplies (API 1.30.0+)** — two ways, deliberately
+different. A parameter's `default` is sent only when the client leaves it out,
+so the caller stays in control: a convenience. `fixedParameters` are always
+sent and overwrite whatever the client sent, like `callerParameters`: a
+control. A custom API that declares a flag a citizen must never choose
+(`IsPrivate`, a source or channel code, a staff-only status) gets it in
+`fixedParameters`, still declared in `requestParameters` because Dataverse
+requires it:
+
+```json
+{
+  "routeName": "add-case-note",
+  "dataverseUniqueName": "lcc_AddCaseNote",
+  "tiers": ["me", "team"],
+  "target": { "table": "case", "recordIdPath": "CaseRef", "recordKey": "ticketnumber" },
+  "fixedParameters": { "IsPrivate": false },
+  "requestParameters": [
+    { "uniqueName": "CaseRef", "displayName": "Case reference", "type": "string" },
+    { "uniqueName": "Note", "displayName": "Note", "type": "string" },
+    { "uniqueName": "IsPrivate", "displayName": "Is private", "type": "boolean" },
+    { "uniqueName": "Source", "displayName": "Source", "type": "string", "default": "portal" }
+  ]
+}
+```
+
+Both apply on every tier, `public` included, and a function gets them in its
+URL. Write the value as the JSON type the parameter takes — `false`, not
+`"false"`. Don't publish either to a scope an older deployment serves: it
+ignores both, so the client's value reaches Dataverse.
+
 `target.table` names a published route in the scope; the check then uses that
 route's own contact and account paths (multi-hop and reverse joins included)
 and its filters, plus `target.filters`. For a table that isn't a route, declare
@@ -350,8 +383,19 @@ an array is OR'd), `accountColumn` (for `team`), `recordIdPath`, `filters`.
   `"unchecked": true`. Mark one only when any record really is acceptable there.
 - A `target.recordKey` that isn't a text column with an active single-column
   alternate key, is the primary key, or sits on an inline target.
-- `ownershipCheck` alongside `tiers`; `target` or `callerParameters` without
-  `tiers`.
+- A `fixedParameters` value or `default` that doesn't suit the parameter's type
+  (`true`/`false` for `boolean`, a whole number for `integer` / `picklist`, a
+  number for `decimal` / `float` / `money`, a string for `string`, an ISO 8601
+  string for `datetime`, a GUID string for `guid`, a list of strings for
+  `stringArray`, actions only), or one on an `entity` / `entityReference` /
+  `entityCollection` parameter — records come from the URL or the caller.
+- `fixedParameters` naming an undeclared parameter, the `recordIdPath`
+  parameter or a `callerParameters` entry, or a fixed parameter that also has a
+  `default`; a `default` on the `recordIdPath` parameter or a caller parameter.
+  A fixed `guid` counts as checked for the `unchecked` rule; a default one
+  doesn't.
+- `ownershipCheck` alongside `tiers`; `target`, `callerParameters` or
+  `fixedParameters` without `tiers`.
 
 A `target.table` that isn't published yet is accepted, so the API and its table
 can apply in either order; calls answer 500 until the table exists. A

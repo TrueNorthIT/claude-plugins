@@ -240,6 +240,8 @@ Then read the shape off the result, not off the name:
 | `bindingType: "global"`, a `string` param the plugin resolves as a reference number (ticket number, case ref) | unbound on a record, named by key | `target = { table, recordIdPath: "<param>", recordKey: "<column>" }` — check the column has an alternate key; if not, say so before writing it |
 | a `guid` param that is the caller | caller-scoped | `callerParameters = { "<param>": "contactId" }` (or `accountId`) |
 | any other `guid`/`entityReference`/`entity` param | a decision | ask; `"unchecked": true` only for reference data, said in review |
+| a flag or code the caller mustn't choose (`IsPrivate`, a source/channel, a staff-only status) | fixed by the definition | `fixedParameters = { "<param>": <value> }` (API 1.30.0+), parameter still declared. Not a `default`, which the client can override |
+| a required input that nearly always takes one value | convenience | `"default": <value>` on the parameter (API 1.30.0+); the client may still send its own |
 | `requestParameters[]`, `responseProperties[]` | the call's signature | copy `uniqueName`, `displayName`, `type`, `logicalEntityName`, `isOptional` verbatim |
 
 Don't copy `isFunction`, `bindingType` or `boundEntityLogicalName` into the
