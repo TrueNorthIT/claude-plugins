@@ -205,10 +205,21 @@ try {
   if (e instanceof ApiError) {
     e.status;      // 403
     e.statusText;  // "Forbidden"
-    e.body;        // { error, message, statusCode } — the parsed API envelope
+    e.body;        // { error, message, statusCode, code? } — the parsed API envelope
+    e.code;        // "contact_not_enabled" | "access_withdrawn" | undefined
   }
 }
 ```
+
+`e.code` (SDK 1.27.0+) is a stable reason for the refusals a screen has to
+tell apart. Branch on it, never on the message text:
+
+| `code` | Status | Meaning |
+|---|---|---|
+| `contact_not_enabled` | 403 | The email matches a contact, but the contact fails the scope's `contactFilters` — not set up for online access |
+| `access_withdrawn` | 403 | Every contact for the email is inactive |
+
+Most errors carry no `code`; fall back to `e.status`.
 
 Show `e.body.message` to a developer; do not show it to a citizen. A 403 body
 naming `case:write:team` is precise and also meaningless to the end user, and
