@@ -973,6 +973,11 @@ const slots = await client.public.invokeFunction<{ result: Slot[] }>("expand-cal
 });
 ```
 
+Two things the API's definition can do that change what the portal sends (read them off `openapi.json` for the action, not off the Dataverse API's own parameter list):
+
+- **`recordId` may be a reference number** (API 1.29.0+). If the definition's target has `recordKey` (e.g. `ticketnumber`), pass the case reference the citizen sees, `recordId: "CAS-01234-X1Y2"`, or the GUID. The server finds the case, checks it's theirs and writes the right value into the API.
+- **Fixed parameters aren't the portal's to send** (API 1.30.0+). A parameter in the definition's `fixedParameters` (a staff-only flag such as `IsPrivate`) is always sent by the server and anything the portal sends is overwritten, so leave it out of `body` / `params`. It doesn't appear in the action's request schema. A parameter with a `default` may be left out too. Never add a UI control for a fixed parameter.
+
 For picklist labels, the SDK automatically includes `<field>_label` alongside `<field>` in list responses when the schema declares the field as `choice`. Use those fields directly in the UI — no extra lookup needed.
 
 For filters:
