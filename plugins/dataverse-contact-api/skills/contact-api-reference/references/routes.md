@@ -96,6 +96,18 @@ a function's parameter alias, or `"/incidents({id})"` for an `…@odata.bind`
 field. If the body named a *different* record there, the call is a 400.
 `callerParameters` are overwritten the same way, silently.
 
+**A record can be named by its reference number (API 1.29.0+).** When the
+definition's target sets `recordKey` (e.g. `"ticketnumber"`, or a custom
+column like `lcc_caseref`), the path segment may be that value or the GUID:
+`POST /api/v2/lcc/me/actions/add-case-note/CAS-01234-X1Y2`. The server finds
+the record in the same query that checks it is the caller's, so someone
+else's reference number is a 404 like their GUID. It then writes what it read
+from that record: the reference number into a `string` parameter, and the
+GUID into a `guid` / `entityReference` parameter or as the bound record. The
+column must carry an active single-column alternate key in Dataverse, or
+saving the definition is refused (and a call fails closed with a 500 if the
+key is later removed). In the SDK it is still `recordId`.
+
 ```http
 POST /api/v2/default/me/actions/close-incident/{caseId}
 { "IncidentResolution": { "subject": "Resolved online" }, "Status": 5 }

@@ -296,6 +296,32 @@ API itself must filter by them:
 }
 ```
 
+**Named by a reference number (API 1.29.0+)** — when the plugin finds the
+record by a reference column (`ticketnumber`, `lcc_caseref`) rather than its
+GUID, add `recordKey`. The URL may then carry that value or the GUID; the
+server finds the record in the query that checks the caller and writes the
+reference number, read from that record, into a `string` parameter (the GUID
+into a `guid` / `entityReference` parameter, or as the bound record):
+
+```json
+{
+  "routeName": "add-case-note",
+  "dataverseUniqueName": "lcc_AddCaseNote",
+  "tiers": ["me", "team"],
+  "target": { "table": "case", "recordIdPath": "CaseRef", "recordKey": "ticketnumber" },
+  "requestParameters": [
+    { "uniqueName": "CaseRef", "displayName": "Case reference", "type": "string" },
+    { "uniqueName": "Note", "displayName": "Note", "type": "string" }
+  ]
+}
+```
+
+The column needs a **single-column alternate key** with an Active index —
+Terraform doesn't create it; it belongs in the customer's solution. Without
+it the apply fails with a 400 that says what to add. Don't suggest marking
+the parameter `unchecked` and passing the reference in the body instead:
+nothing would tie it to the record that was checked.
+
 `target.table` names a published route in the scope; the check then uses that
 route's own contact and account paths (multi-hop and reverse joins included)
 and its filters, plus `target.filters`. For a table that isn't a route, declare
@@ -322,6 +348,8 @@ an array is OR'd), `accountColumn` (for `team`), `recordIdPath`, `filters`.
 - A `guid` / `entityReference` / `entity` / `entityCollection` parameter the
   server doesn't fill, on any non-public tier — unless it is marked
   `"unchecked": true`. Mark one only when any record really is acceptable there.
+- A `target.recordKey` that isn't a text column with an active single-column
+  alternate key, is the primary key, or sits on an inline target.
 - `ownershipCheck` alongside `tiers`; `target` or `callerParameters` without
   `tiers`.
 

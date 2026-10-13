@@ -237,6 +237,7 @@ Then read the shape off the result, not off the name:
 |---|---|---|
 | `bindingType: "entity"`, `boundEntityLogicalName: X` | bound to X | `target = { table: <the route on X> }` |
 | `bindingType: "global"`, a `guid`/`entityReference` param naming a record the caller owns | unbound on a record | `target = { table, recordIdPath: "<param>" }` |
+| `bindingType: "global"`, a `string` param the plugin resolves as a reference number (ticket number, case ref) | unbound on a record, named by key | `target = { table, recordIdPath: "<param>", recordKey: "<column>" }` — check the column has an alternate key; if not, say so before writing it |
 | a `guid` param that is the caller | caller-scoped | `callerParameters = { "<param>": "contactId" }` (or `accountId`) |
 | any other `guid`/`entityReference`/`entity` param | a decision | ask; `"unchecked": true` only for reference data, said in review |
 | `requestParameters[]`, `responseProperties[]` | the call's signature | copy `uniqueName`, `displayName`, `type`, `logicalEntityName`, `isOptional` verbatim |
@@ -425,5 +426,6 @@ they don't — the second must be refused.
 | `test-query --tier me` for a contact that matches nobody returns rows | the route isn't filtering by caller — usually `fetch_xml` without `{{contactid}}`, which replaces the join. Fix before anyone uses it |
 | a portal gets `401` calling a custom API | the portal called it through `client.public`, which sends no token, and the API isn't on the `public` tier. Call it on its tier (`client.me.invoke…`); don't add `public` |
 | a custom API answers `404 … not available on the me tier` | `tiers` doesn't list the tier the portal calls. Add it to `tiers` (and the matching `invoke` grant), or call the tier it lists |
+| publishing a custom API fails with a 400 saying `recordKey` isn't an active alternate key | add a single-column key on that column in Dataverse (*Tables → <table> → Keys*), wait for its status to be Active, apply again. Don't work around it with an `unchecked` parameter |
 | publishing a custom API fails with a 400 naming `target`, `recordIdPath`, `callerParameters` or `unchecked` | the API's save rules — see *What publishing refuses* in `references/provider-reference.md` |
 | a field "saves" with a 200 but never changes | it is `read_only`; the API drops it silently from create and PATCH |
