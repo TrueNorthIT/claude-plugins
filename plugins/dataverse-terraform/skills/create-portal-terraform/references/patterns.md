@@ -228,6 +228,7 @@ and the publish rules are in `provider-reference.md`; the decisions are these.
 |---|---|---|
 | is bound to a table | bound | `target = { table = <the route on that table> }` |
 | takes the record as a parameter | unbound on a record | `target = { table = …, recordIdPath = "<param>" }` |
+| takes the record's reference number (a `string` such as a ticket number) | unbound on a record, named by key | `target = { table = …, recordIdPath = "<param>", recordKey = "<column>" }` — needs an alternate key on the column |
 | takes no record — it acts for the caller | caller-scoped | `callerParameters = { "<param>": "contactId" }` |
 | returns data anyone may see, changes nothing | public | `tiers = ["public"]`, no target |
 

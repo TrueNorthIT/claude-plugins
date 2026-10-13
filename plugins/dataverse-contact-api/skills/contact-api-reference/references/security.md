@@ -171,6 +171,13 @@ What the server checks, on a definition with `tiers`:
   400. The binding is read from Dataverse when the definition is saved, and
   saving refuses a bound API whose target isn't the table Dataverse binds it
   to.
+- **A reference number in the path** (`target.recordKey`) names one record
+  only because an alternate key makes the column unique — the plugin looks
+  the record up by the same value, so a duplicate could make the record
+  checked and the record acted on differ. Saving requires an active
+  single-column key; each call re-checks it (cached five minutes) and fails
+  closed. What reaches the plugin is the value read from the checked record,
+  never the text from the URL.
 - **The caller's own ids** in `callerParameters`, overwriting the client's.
 - **Only declared parameters** are passed on.
 
