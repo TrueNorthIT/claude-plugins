@@ -279,6 +279,15 @@ Publishing refuses a `guid` / `entityReference` / `entity` parameter the server
 doesn't fill. Mark one `"unchecked": true` only when any record genuinely is
 acceptable there — a reference-data id, say — and say so in review.
 
+**A parameter the citizen mustn't choose is fixed, not defaulted.** When the
+Dataverse API declares an input the portal should never set — `IsPrivate` on a
+case note, a source or channel code, a staff-only status — put it in
+`fixedParameters` (`{ "IsPrivate": false }`, API 1.30.0+). The server then
+sends that value whatever the client posts. A `default` on the parameter only
+fills it when the client sends nothing, so a citizen can still send `true`;
+use `default` for convenience, never as a control. Keep the parameter in
+`requestParameters` either way.
+
 **Caller-scoped means the plugin filters.** `callerParameters` guarantees the
 id is the caller's; it doesn't stop the plugin returning someone else's rows.
 Read the plugin before granting it.

@@ -108,6 +108,16 @@ column must carry an active single-column alternate key in Dataverse, or
 saving the definition is refused (and a call fails closed with a 500 if the
 key is later removed). In the SDK it is still `recordId`.
 
+**A definition can supply plain values too (API 1.30.0+).** A request
+parameter's `default` is sent when the client leaves it out; the client can
+still send its own. The definition's `fixedParameters`
+(`{ "IsPrivate": false }`) are always sent and **overwrite** what the client
+sent, silently, like `callerParameters`. Both apply on every tier, `public`
+included, and a required parameter that is fixed or defaulted needn't be sent.
+`openapi.json` leaves fixed parameters out of the request and says "Always
+sent as: `IsPrivate` = `false`"; a defaulted one shows an OpenAPI `default`.
+So a client sending a fixed parameter is harmless but pointless: drop it.
+
 ```http
 POST /api/v2/default/me/actions/close-incident/{caseId}
 { "IncidentResolution": { "subject": "Resolved online" }, "Status": 5 }

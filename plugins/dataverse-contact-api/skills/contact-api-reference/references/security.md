@@ -179,6 +179,14 @@ What the server checks, on a definition with `tiers`:
   closed. What reaches the plugin is the value read from the checked record,
   never the text from the URL.
 - **The caller's own ids** in `callerParameters`, overwriting the client's.
+- **Fixed values** in `fixedParameters` (API 1.30.0+), overwriting the
+  client's on every tier. This is how a definition keeps a flag such as
+  `IsPrivate` out of the caller's hands when the custom API declares it as an
+  input. A parameter's `default` is **not** a control: it applies only when
+  the client sends nothing, so a caller can still choose the value. When
+  reviewing a scope, any declared parameter a citizen mustn't decide (a
+  privacy flag, a source/channel code, a staff-only status) should be in
+  `fixedParameters`; a plain declaration or a `default` leaves it caller-set.
 - **Only declared parameters** are passed on.
 
 What it takes on trust:

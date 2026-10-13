@@ -105,6 +105,8 @@ even when they are correct and intentional:
 | a custom API with no `tiers` | Legacy: only its old `ownershipCheck` ties a call to the caller — and without one, nothing does. It also answers the deprecated `/public/actions` route at the caller's highest grant |
 | a custom API's `target` | Says whose record the API may act on, per tier: name the table and the path it checks through (`target.table` uses that route's own join). On `all`, only that the record exists |
 | `callerParameters` | The API is told who called and must filter by it itself — the server checks nothing else |
+| `fixedParameters` | The server always sends these values, whatever the caller posts — the caller can't change them |
+| a request parameter with a `default` | Sent only when the caller leaves it out; the caller can still choose the value. If it's a flag the caller mustn't decide, it should be in `fixedParameters` instead |
 | a request parameter with `"unchecked": true` | Any record id the caller sends there reaches the API as sent |
 | a field without `read_only` | The citizen can set it, on create and PATCH — check that is intended for status, owner and identifier columns |
 

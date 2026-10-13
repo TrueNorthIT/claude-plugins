@@ -101,7 +101,19 @@ const slots = await client.public.invokeFunction<{ result: Slot[] }>("expand-cal
   recordId: calendarId,
   params: { Start: start, End: end },
 });
+
+// An API whose target has a recordKey (API 1.29.0+) also takes the record's
+// reference number. A parameter the definition fixes (API 1.30.0+), such as
+// IsPrivate, is the server's to send: leave it out; a value sent is overwritten.
+await client.me.invokeAction("add-case-note", {
+  recordId: "CAS-01234-X1Y2",
+  body: { Subject: "Update", Body: "Called back" },
+});
 ```
+
+The action's entry in `openapi.json` is the contract: it leaves out the
+parameters the server fills (the record, caller ids, fixed values) and marks
+ones with a `default` as optional.
 
 A 404 means the API isn't published on that tier (or the record isn't the
 caller's); a 401 from `client.public` means the API isn't public — call it on
