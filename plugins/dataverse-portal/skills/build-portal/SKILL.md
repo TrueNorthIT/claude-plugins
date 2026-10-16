@@ -256,7 +256,7 @@ Why this schema matters:
 
 **CASENOTES_SCHEMA** — annotations filtered to cases (route name is `casenotes`, NOT `annotation`):
 ```json
-{"routeName":"casenotes","description":"Notes and annotations linked to cases","dataverseTable":"annotations","dataverseLogicalName":"annotation","requiredPermission":"casenotes","primaryKey":"annotationid","aliases":["casenote"],"defaultSelect":["annotationid","subject","notetext","incidentid","isdocument","createdon","modifiedon"],"contactJoinPath":[{"table":"incidents","from":"objectid_incident","key":"incidentid"},{"table":"contacts","from":"customerid_contact","key":"contactid"}],"alternateContactJoinPaths":[[{"table":"incidents","from":"objectid_incident","key":"incidentid"},{"table":"contacts","from":"primarycontactid","key":"contactid"}]],"teamJoinPath":[{"table":"incidents","from":"objectid_incident","key":"incidentid"},{"table":"accounts","from":"customerid_account","key":"accountid"}],"filters":["objecttypecode eq 'incident'"],"parentTable":{"table":"case","navigationProperty":"objectid_incident"},"lookupFields":["subject"],"lookupSearchContains":["subject"],"fields":{"annotationid":{"type":"string","description":"Unique note identifier","readOnly":true},"subject":{"type":"string","description":"Note subject / title"},"notetext":{"type":"string","description":"Note body text"},"isdocument":{"type":"boolean","description":"Whether the note has a file attachment","readOnly":true},"filename":{"type":"string","description":"Attachment file name","readOnly":true},"filesize":{"type":"number","description":"Attachment file size in bytes","readOnly":true},"mimetype":{"type":"string","description":"Attachment MIME type","readOnly":true},"incidentid":{"type":"lookup","description":"Parent case","lookupTable":"incident","valueField":"objectid","bindField":"objectid_incident"},"objecttypecode":{"type":"string","description":"Regarding entity type","readOnly":true},"ownerid":{"type":"lookup","description":"Record owner","readOnly":true},"createdon":{"type":"datetime","description":"Date created","readOnly":true},"modifiedon":{"type":"datetime","description":"Date last modified","readOnly":true}}}
+{"routeName":"casenotes","description":"Notes and annotations linked to cases","dataverseTable":"annotations","dataverseLogicalName":"annotation","requiredPermission":"casenotes","primaryKey":"annotationid","aliases":["casenote"],"defaultSelect":["annotationid","subject","notetext","incidentid","isdocument","createdon","modifiedon"],"contactJoinPath":[{"table":"incidents","from":"objectid_incident","key":"incidentid"},{"table":"contacts","from":"customerid_contact","key":"contactid"}],"alternateContactJoinPaths":[[{"table":"incidents","from":"objectid_incident","key":"incidentid"},{"table":"contacts","from":"primarycontactid","key":"contactid"}]],"teamJoinPath":[{"table":"incidents","from":"objectid_incident","key":"incidentid"},{"table":"accounts","from":"customerid_account","key":"accountid"}],"filters":["objecttypecode eq 'incident'"],"parentTable":{"table":"case","navigationProperty":"objectid_incident"},"lookupFields":["subject"],"lookupSearchContains":["subject"],"fields":{"annotationid":{"type":"string","description":"Unique note identifier","readOnly":true},"subject":{"type":"string","description":"Note subject / title"},"notetext":{"type":"string","description":"Note body text"},"isdocument":{"type":"boolean","description":"Whether the note has a file attachment","readOnly":true},"filename":{"type":"string","description":"Attachment file name","readOnly":true},"filesize":{"type":"number","description":"Attachment file size in bytes","readOnly":true},"mimetype":{"type":"string","description":"Attachment MIME type","readOnly":true},"incidentid":{"type":"lookup","description":"Parent case","lookupTable":"incident","valueField":"objectid","bindField":"objectid_incident"},"objecttypecode":{"type":"string","description":"Regarding entity type","readOnly":true},"ownerid":{"type":"lookup","description":"Record owner","readOnly":true},"createdon":{"type":"datetime","description":"Date created","readOnly":true},"modifiedon":{"type":"datetime","description":"Date last modified","readOnly":true}},"files":{"content":"documentbody","fileName":"filename","mimeType":"mimetype","size":"filesize"}}
 ```
 
 Why this schema matters:
@@ -266,6 +266,7 @@ Why this schema matters:
 - `contactJoinPath` is two hops: annotation → incident → contact (via `customerid_contact`)
 - `filter: ["objecttypecode eq 'incident'"]` restricts to case-linked notes only
 - The join reaches **every** note on the citizen's case — including ones staff wrote for each other. Ask whether that's acceptable before publishing. If the organisation marks customer-facing notes somehow (a flag, a prefix its staff already use), add it to `filters` and prove it with `test-query`; if not, tell the user plainly that staff notes on a case will be visible to the customer
+- `files` serves a note's attachment as a 5-minute download link (API 1.31.0+), and keeps `documentbody` out of the fields so it can never come back inline. Show `filename` and `filesize`, and fetch the link when the citizen clicks (see *Files and attachments* below). On an older deployment the PUT refuses `files`: drop the key, and show attachments as names only
 - Grant `casenotes:create`, not `casenotes:write` (step 10). Adding a note needs only `create`; `write` would let a citizen edit any note the join reaches, staff ones included
 
 For the frontend, scope child records to their parent:
@@ -711,6 +712,8 @@ export function friendlyError(err: unknown): string {
 }
 ```
 
+**Files: link on click, never inline.** A note's attachment and an email's attachments come through `client.me.files(table, id)` (names, types, sizes) and `client.me.fileLink(table, id, fileId)`, which returns a URL that works for a few minutes. Request the link in the click handler and navigate to it (`window.location.assign`). Don't prefetch it, cache it (TanStack Query included), log it or send it to analytics: until it expires, anyone holding it can download the file. Never `fetch` a file into the page, or turn it into a `blob:` or `data:` URL to preview it: an HTML or SVG attachment would then run as the portal. Never `select` `documentbody` or `body`. For an email, render its `description` with `SafeHtml`.
+
 **Realtime events are a reason to refetch, not data.** An event's `recordId` says something changed. It doesn't say this citizen may see it. Invalidate the matching queries and let the scoped route answer; never render from the event.
 
 **Query keys carry identity.** With a company switcher (`withCompany`), put the selected company id in every query key, or the cache shows one company's rows under another's name until the refetch lands. On sign-out, clear what the app stored itself (a remembered company, preferences) as well as letting `logoutRedirect` clear MSAL's cache. Don't persist the query cache to storage: on a shared computer, that is the previous person's data.
@@ -929,6 +932,15 @@ export async function fetchCaseNotes(client: DataverseClient, caseId: string) {
     orderBy: { field: "createdon", direction: "desc" },
   };
   return client.me.list<Casenotes>("casenotes", options);
+}
+
+// src/services/fileApi.ts — download a note's attachment (or an email's).
+// Ask for the link on click and navigate at once: it expires in minutes, so it
+// never goes in a query cache. The browser downloads it from storage as an
+// attachment; nothing is fetched into the page.
+export async function downloadFile(client: DataverseClient, table: string, id: string, fileId: string) {
+  const link = await client.me.fileLink(table, id, fileId);
+  window.location.assign(link.url);
 }
 
 // src/services/caseApi.ts — write. CreateInput/UpdateInput hold only the

@@ -244,6 +244,18 @@ const LINE_RULES = [
     re: /\bhref=\{\s*(?!["'`])[\w$.?[\]]+\s*\}|window\.open\(\s*(?!["'`])[\w$.]+/,
   },
   {
+    id: "file-content-inline",
+    severity: "high",
+    title: "A file's content read through the API — the whole file inline; use files() / fileLink()",
+    re: /\bdocumentbody\b|\bactivitymimeattachments?\b/i,
+  },
+  {
+    id: "file-in-page",
+    severity: "medium",
+    title: "Content turned into a blob: or data: URL in the page — an HTML or SVG attachment would run as the portal",
+    re: /URL\.createObjectURL\s*\(|["'`]data:[a-z]+\/[\w.+-]+;base64,/i,
+  },
+  {
     id: "debug-switch",
     severity: "low",
     title: "Client-side debug switch anyone can flip",

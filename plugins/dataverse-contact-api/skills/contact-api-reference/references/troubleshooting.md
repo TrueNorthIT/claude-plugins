@@ -45,6 +45,11 @@ below are indistinguishable from each other at the call site and obvious in
 | `404 Table "X" does not support /me access. Use /all/X instead.` | The route declares no contact join path | A configuration fact, not a permission. No grant will change it |
 | `404 No company account is available for team access…` | No account on the contact, or no `X-Company-Id` selected | The message names both models; supply whichever input is missing |
 | `404` on one `{id}` that you know exists | The row exists but the join does not reach you at that tier | Try the same id at `team`, then `all`. If `all` finds it, it is a join question, not a data question |
+| `503 File downloads aren't set up on this deployment.` (`code: "downloads_not_configured"`) | The deployment has no download storage (API 1.31.0+). Listing files still works | Set `DOWNLOADS_STORAGE_ACCOUNT_URL` and grant the API's identity Storage Blob Delegator + Storage Blob Data Contributor |
+| `404 Table "X" has no files.` | The route doesn't declare `files` | Declare it on the table. `/schema` shows `files: true` where it is |
+| `404` on `…/files/{fileId}/link` for a file you can see in Dataverse | The file isn't on that row, or the row isn't the caller's at that tier | List `/{table}/{id}/files` and use a `fileId` from there. A note's `fileId` is the note id |
+| `413 The file is larger than the … download limit` | Over `DOWNLOAD_MAX_BYTES` (25 MB default) | Raise it on the deployment, or have staff send the file another way |
+| A download link that answers 403 `AuthenticationFailed` | It expired (5 minutes by default) | Request a fresh link on click; never keep one |
 | `400 Invalid pagination state. Use the cursor from 'page.next'…` | A `skip` without a cursor | Take the cursor from `page.next`; there is no offset paging |
 | Page 2 returns rows page 1 filtered out, or is missing fields page 1 had | Before API 1.24.0, `page.next` carries only `top`, `cursor` and `orderBy` | Upgrade. Until then, rebuild each page's URL from the cursor plus your page-1 query — see `querying.md` |
 | `414 URI Too Long` a few pages into a list, or page 2 of a lookup ignores `search` | The client appends its own query to `page.next`, which already carries it. Up to API 1.25.0 every repeat was echoed back, so the URL grew each page | Follow `page.next` as given. Don't append to it |

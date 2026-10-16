@@ -62,6 +62,7 @@ a single apply.
 | `public_choices` | no | Default `true`. Choice/option-set values readable unauthenticated. |
 | `public_read` | no | Default `false`. Route readable on the public tier — every column in `fields`, every `expand`, and every row its `filters` allow, by paging. |
 | `public_create` | no | Default `false`. Unauthenticated POST allowed. No caller, so `create_default` binds nothing and lookups go unchecked. Does not need `public_read`. |
+| `files` | no | Provider v1.5.0+, API 1.31.0+. Downloadable files on the rows, served as 5-minute links (`GET /{tier}/{route}/{id}/files`, `POST …/files/{fileId}/link`), never inline. `content`, `file_name`, `mime_type`, `size` name the columns. Add `table`, `primary_key`, `parent_column` (all three) when the files are rows of a child table. See `patterns.md`. |
 
 Computed: `id` (`{scope}/{route_name}`), `source` (`published` / `built-in`),
 `field_count`.
@@ -119,7 +120,10 @@ expand {
 ```
 
 Join-step arguments: `table`, `from`, `key` (all required — pass `key = ""`
-where there is none) and `reverse` (optional bool). Steps are **ordered**; each
+where there is none), `reverse` (optional bool) and `match` (optional, reverse
+steps only, provider v1.5.0+): a map of column to the option-set values the
+related row must have, compiled into the same `any()` lambda, e.g.
+`match = { participationtypemask = [1, 2, 3, 4] }`. Steps are **ordered**; each
 hop walks from the previous table to the next.
 
 A `create_default` overwrites the caller's value on an authenticated create
@@ -652,6 +656,8 @@ translating a published schema by hand:
 | `createDefaults[]` (`field`, `bindTo`, `entitySet`) | `create_default` (`field`, `bind_to`, `entity_set`) |
 | `parentTable` (`table`, `navigationProperty`) | `parent_table` (`table`, `navigation_property`) |
 | `expands[]` (`lookupField`, `relatedTable`, `fields[]`) | `expand` (`lookup_field`, `related_table`, `field` blocks) |
+| join step `match` (`{ "participationtypemask": [1, 2] }`) | `match = { participationtypemask = [1, 2] }` |
+| `files` (`table`, `primaryKey`, `parentColumn`, `content`, `fileName`, `mimeType`, `size`) | `files = { table, primary_key, parent_column, content, file_name, mime_type, size }` |
 | `fields{}` (`readOnly`, `lookupTable`, `valueField`, `bindField`) | `fields` map (`read_only`, `lookup_table`, `value_field`, `bind_field`) |
 | defaults: `permissions`, `allowSelfRegister`, `companyModel`, `join`, `contactEmailColumn`, `contactFilters` | `default_permissions`, `allow_self_register`, `company_model`, `join`, `contact_email_column`, `contact_filters` |
 

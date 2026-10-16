@@ -84,6 +84,64 @@ A contact id that matches nobody must get nothing back. Rows mean the route is
 returning the table, not the caller's slice of it — fix that before granting it
 to anyone.
 
+### Files and email: reach the file through its row
+
+A note's attachment and an email's attachments are files. Declare `files` on
+the route and the API serves them as 5-minute download links, never inline
+(provider v1.5.0+, API 1.31.0+). A note is its own file:
+
+```hcl
+files = { content = "documentbody", file_name = "filename", mime_type = "mimetype", size = "filesize" }
+```
+
+The content column then drops out of `fields`. Without `files`, a declared
+`documentbody` (or `body` on `activitymimeattachments`) returns the whole file
+inline to anyone who can read the row: the exporter flags it with `# CHECK:`.
+
+Email attachments are rows of a **child** table. Don't publish
+`activitymimeattachments` as a route of its own. Dataverse can't filter an
+attachment by its email's parties, so it has no join path that holds. Hang the
+files off the email route instead, and the API reaches each file through an
+email the caller can already see:
+
+```hcl
+# emails the contact was on — sender, to, cc or bcc — never "regarding"
+contact_join_step {
+  table   = "activityparties"
+  from    = "email_activity_parties"
+  key     = "activitypartyid"
+  reverse = true
+  match   = { participationtypemask = [1, 2, 3, 4] }
+}
+contact_join_step {
+  table = "contacts"
+  from  = "partyid_contact"
+  key   = "contactid"
+}
+filters = ["statecode eq 1"] # sent or received; drafts are statecode 0
+
+files = {
+  table         = "activitymimeattachments"
+  primary_key   = "activitymimeattachmentid"
+  parent_column = "objectid"
+  content       = "body"
+  file_name     = "filename"
+  mime_type     = "mimetype"
+  size          = "filesize"
+}
+```
+
+Two reasons it's the activity parties and not `regardingobjectid`:
+
+- Staff file internal email *Regarding* a contact or their case. A Regarding
+  join shows the customer all of it.
+- `match` is what stops the party join doing the same thing. Dataverse adds a
+  Regarding party (mask 8) for whatever the email is filed against, so a party
+  join without `match` would still count the contact as on the email.
+
+Grant it `["me"]` only. Prove it with `test-query` as above, and on a real email
+that is filed against the contact without them on it.
+
 ### Creating an ownerless child
 
 The parent carries a `create_default` binding the caller, plus an `expand` for

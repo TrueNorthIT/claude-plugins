@@ -163,6 +163,11 @@ function emitJoinSteps(blockName, steps, indent) {
     out.push(`${pad}  from  = ${hclString(s.from)}`);
     out.push(`${pad}  key   = ${hclString(s.key ?? "")}`);
     if (s.reverse) out.push(`${pad}  reverse = true`);
+    // A reverse step's conditions on the related row (provider v1.5.0+).
+    if (s.match && Object.keys(s.match).length) {
+      const entries = Object.entries(s.match).map(([column, values]) => `${column} = [${values.join(", ")}]`);
+      out.push(`${pad}  match = { ${entries.join(", ")} }`);
+    }
     out.push(`${pad}}`);
   }
   return out;
@@ -173,7 +178,13 @@ function emitJoinSteps(blockName, steps, indent) {
 function describeJoin(steps) {
   if (!steps || steps.length === 0) return null;
   return steps
-    .map((s) => (s.reverse ? `${s.table} (reverse via ${s.from})` : `${s.table} via ${s.from}`))
+    .map((s) => {
+      if (!s.reverse) return `${s.table} via ${s.from}`;
+      const match = s.match && Object.keys(s.match).length
+        ? `, where ${Object.entries(s.match).map(([c, v]) => `${c} in ${v.join("/")}`).join(" and ")}`
+        : "";
+      return `${s.table} (reverse via ${s.from}${match})`;
+    })
     .join(" → ");
 }
 
@@ -225,6 +236,22 @@ function emitTable(def, label, perms, signInColumn) {
   if (def.publicRead === true) add(`  public_read            = true`);
   if (def.publicCreate === true) add(`  public_create          = true`);
   if (def.fetchXml) add(`  fetch_xml              = ${hclText(def.fetchXml, 2)}`);
+  if (def.files) {
+    // Downloadable files, served as short-lived links (provider v1.5.0+).
+    const f = def.files;
+    const pairs = [
+      ...(f.table ? [["table", f.table], ["primary_key", f.primaryKey], ["parent_column", f.parentColumn]] : []),
+      ["content", f.content],
+      ["file_name", f.fileName],
+      ["mime_type", f.mimeType],
+      ["size", f.size],
+    ];
+    const width = Math.max(...pairs.map(([k]) => k.length));
+    add("");
+    add(`  files = {`);
+    for (const [k, v] of pairs) add(`    ${k.padEnd(width)} = ${hclString(v)}`);
+    add(`  }`);
+  }
   add("");
   add(`  default_select = ${hclList(def.defaultSelect, 2)}`);
   add("");
@@ -324,6 +351,11 @@ function securityWarnings(def, signInColumn) {
         ? "fetch_xml replaces the join steps and filters on list queries; its {{contactid}}/{{accountid}} placeholders are what scope them."
         : "fetch_xml has no {{contactid}}/{{accountid}} placeholder — list queries return the same rows on every tier, public included.",
     );
+  }
+
+  const contentColumn = { annotations: "documentbody", activitymimeattachments: "body" }[def.dataverseTable];
+  if (contentColumn && def.fields?.[contentColumn] && def.files?.content !== contentColumn) {
+    warnings.push(`${contentColumn} is a field — it returns the whole file inline to anyone who can read the row. Remove it and declare files to serve it as a download link.`);
   }
 
   if (def.dataverseTable === "contacts" && def.fields?.[signInColumn] && !def.fields[signInColumn].readOnly) {
@@ -847,6 +879,14 @@ const blocks = [];
 
 // Scope summary — the things a reviewer should see before reading 900 lines.
 const publicRoutes = tables.filter((d) => d.publicRead || d.publicCreate);
+const usesFilesOrMatch = tables.some(
+  (d) =>
+    d.files ||
+    [d.contactJoinPath, d.teamJoinPath, ...(d.alternateContactJoinPaths ?? [])].some((path) =>
+      (path ?? []).some((step) => step.match && Object.keys(step.match).length),
+    ),
+);
+
 const broadRoutes = Object.entries(storedPerms)
   .filter(([, actions]) => actions.some((a) => a === "all" || a.endsWith(":all")))
   .map(([route]) => route);
@@ -890,9 +930,12 @@ blocks.push(
     "  required_providers {",
     "    dataversecontact = {",
     '      source  = "TrueNorthIT/dataversecontact"',
-    // contact_email_column arrived in provider v1.2.0, contact_filters in v1.4.0.
+    // contact_email_column arrived in provider v1.2.0, contact_filters in v1.4.0,
+    // files and a join step's match in v1.5.0.
     `      version = "${
-      storedDefaults.contactFilters?.length ? ">= 1.4.0" : storedDefaults.contactEmailColumn ? ">= 1.2.0" : ">= 1.1.1"
+      usesFilesOrMatch
+        ? ">= 1.5.0"
+        : storedDefaults.contactFilters?.length ? ">= 1.4.0" : storedDefaults.contactEmailColumn ? ">= 1.2.0" : ">= 1.1.1"
     }, < 2.0.0"`,
     "    }",
     "  }",
