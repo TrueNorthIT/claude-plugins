@@ -133,6 +133,19 @@ Keep `contact:write:team` and `contact:write:all` out of defaults altogether.
   through the case return every note on the case, including the ones staff
   wrote for each other. Filter to what is meant for the customer, or don't
   publish the route.
+- **Files are never part of a row** (API 1.31.0+). On a table that declares
+  `files`, the content column is removed from `fields`, and content is only
+  served as a 5-minute link for one blob, through a row the caller can see. A
+  table that declares `documentbody` or `body` as an ordinary field returns
+  the whole file inline to anyone who can read the row. Saving it gets a
+  `file-content-field` warning. Before 1.31.0, the bundled `casenotes` route did
+  this through a discovered column.
+- **Email routes: match on the party, not on Regarding.** Staff file internal
+  email Regarding a contact or case. A route joined through Regarding shows the
+  customer all of it. The bundled `emails` route joins through the email's
+  activity parties, with `match: { participationtypemask: [1, 2, 3, 4] }` so
+  only From/To/CC/BCC count. Without the `match`, the Regarding party
+  Dataverse adds would count too.
 - **`permissionGroup` widens a child to its parent's grants** — all of them,
   including any per-person `:all` grant on the parent's subject.
 
@@ -290,6 +303,10 @@ The server's guarantees end at the response.
   says something changed; the scoped route decides whether this caller may see
   it. Every signed-in user of the scope receives every event (from API 1.24.0,
   only that scope's events).
+- **A download link is a credential for a few minutes.** Anyone holding the URL
+  can fetch the file until `expiresOn`. Request it on click and navigate to it.
+  Don't log it, cache it, put it in analytics or share it. The file comes from
+  storage as an attachment; never `fetch` it into the page to show inline.
 - **Ids from the address bar are untrusted.** Check one is a GUID before using
   it. SDK 1.24.0 and later encode ids into the path and keep `fetchPage` on the
   API's origin. Older versions put an id into the path as given and send the

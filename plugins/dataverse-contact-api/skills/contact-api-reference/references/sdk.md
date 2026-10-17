@@ -65,6 +65,7 @@ client.public  // unauthenticated; read-only in the SDK, plus public custom APIs
 | `companies` | **yes** | — | — | — |
 | `register` | **yes** | — | — | — |
 | `invokeFunction` / `invokeAction` | yes | yes | yes | yes (no token) |
+| `files` / `fileLink` | yes | yes | yes | — |
 
 `create`, `whoami`, `companies` and `register` exist **only** on `me`.
 
@@ -121,6 +122,23 @@ caller's); a 401 from `client.public` means the API isn't public — call it on
 anyone on the internet. Before 1.26.0, `client.me.invoke*` called the
 deprecated `/public/actions/{name}` route, which takes the tier from the
 caller's highest grant.
+
+**Files: list, then link on click** (SDK 1.31.0 and later). On a table whose
+schema has `files: true`, `files(table, id)` lists a row's files, and
+`fileLink(table, id, fileId)` returns a URL that works for a few minutes:
+
+```ts
+const { value: files } = await client.me.files("emails", emailId);
+
+async function download(fileId: string) {
+  const link = await client.me.fileLink("emails", emailId, fileId);
+  window.location.assign(link.url); // straight from storage, as an attachment
+}
+```
+
+Ask for the link when the user clicks, never ahead of time. Don't cache it
+(not in TanStack Query either), and don't `fetch` the file into the page or
+render it inline. A note is its own file: `fileLink("casenotes", noteId, noteId)`.
 
 **There is no `delete` method anywhere**, because there is no `DELETE` verb.
 Deactivation is an update to `statecode`. For `incident`, even that will not

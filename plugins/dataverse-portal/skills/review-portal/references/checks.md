@@ -18,6 +18,9 @@ points at the pattern, most of them written out in `build-portal`'s
 | `invoke-id-in-body` | A custom API call carries a record id — often one the user picked, or a route param — in `body` / `params` rather than `recordId` | The id isn't a record the API acts on (a reference-data choice the definition marks `unchecked`), or the definition has no `tiers` and an `ownershipCheck` whose `recordIdPath` reads it — say which | Pass the record as `recordId`. A tiered API checks the record in the URL against the caller and writes it into its own parameter; a body naming a different one is a 400. A reference number (ticket number) in the body is the same finding: an API whose target has `recordKey` takes it as `recordId` (API 1.29.0+). If the definition has no `tiers`, it needs them — ask for the scope to be fixed, not the portal |
 | `company-key` | The portal switches company, and this key's data depends on the company | Identity-wide or public data: `whoami`, a public knowledge base | Put the selected company id in the key, or clear the cache on switch |
 | `persisted-cache` | Query data is written to storage | — | Don't persist it. On a shared computer it is the previous person's data |
+| `file-content-inline` | The portal selects `documentbody`, or reads `activitymimeattachments`, to get a file's base64 through the API | The word appears only in a type or a comment | `client.me.files(table, id)` to list, `client.me.fileLink(table, id, fileId)` on click (SDK 1.31.0+). Inline content is the whole file in a JSON response, cut off above a few MB, cached like any read, and on API 1.31.0+ a 400 on a table with `files` |
+| `file-link-cached` | A `fileLink` result is kept: in a query cache (`useQuery`), state that outlives the click, storage, a log or analytics | — | Request it in the click handler and `window.location.assign(link.url)`. Anyone holding the URL can download the file until it expires |
+| `email-regarding` | An email list comes from `contactemails` / `caseemails` (activity routes joined through Regarding) | The scope's own filters limit them to customer-facing mail, and that's been checked | The `emails` route (API 1.31.0+): it matches the contact's own From/To/CC/BCC party, so internal email staff filed against them stays hidden. The old routes also match only open (draft) emails |
 
 ## SDK use
 
@@ -46,6 +49,7 @@ wrong column name at compile time. None of these leak data on their own, except
 | `html-sanitised` | DOMPurify config allows `<form>` and `style` by default | Content comes from trusted staff authors | Consider `FORBID_TAGS: ["form", "style"]` |
 | `html-static` | — | Always: a static string | — (informational) |
 | `href-from-data` | The URL comes from a field (a website, a link column). React < 19 only warns on `javascript:` | It is built from a constant prefix plus an id | `safeHref`: allow `https:`, `mailto:`, `tel:` only |
+| `file-in-page` | An attachment is fetched into the page and shown from a `blob:` or `data:` URL (an `<iframe>`, `<img>`, `<object>` or a new tab). It runs in the portal's origin, so an HTML or SVG file is script with the citizen's token | The object URL is built from bytes the portal generated itself (a CSV export) | Let the browser download the file from the `fileLink` URL; it is served from storage as an attachment |
 | `redirect-param` | A post-login destination is read from the query string and navigated to | It is checked to be a same-origin relative path | Accept only paths starting with a single `/`; otherwise go home |
 
 ## Secrets and environment

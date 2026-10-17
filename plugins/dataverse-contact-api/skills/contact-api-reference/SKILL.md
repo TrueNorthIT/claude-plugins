@@ -60,6 +60,8 @@ What is *absent* here matters as much as what is present:
 | `GET` | `/{tier}/lookup/{table}?search=` | `<subj>:lookup[:team\|:all]` |
 | `GET` | `/{tier}/aggregate/{table}?aggregate=count&groupBy=` | the tier's read permission |
 | `GET` | `/{tier}/changes/{table}?deltaToken=` | the tier's read permission |
+| `GET` | `/{tier}/{table}/{id}/files` | the tier's read permission — tables with `files` only, never `public` (API 1.31.0+) |
+| `POST` | `/{tier}/{table}/{id}/files/{fileId}/link` | the tier's read permission — returns a 5-minute download URL; file content is never in a response. See `references/routes.md` |
 | `GET`/`POST` | `/{tier}/actions/{name}[/{id}]` | Custom APIs, on the tiers the API's definition lists (any other tier is a 404): `public` none, `me` `<name>:invoke`, `team` `<name>:invoke:team`, `all` `<name>:invoke:all`. `GET` = function, `POST` = action. The record goes in the path and is checked against the caller for that tier — see `references/routes.md` |
 | `GET` | `/{scope}/me/whoami` | a valid token |
 | `GET` | `/{scope}/schema[?table=]`, `/{scope}/openapi.json` | none |

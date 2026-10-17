@@ -17,6 +17,8 @@ Base: `/api/v2/{scope}/{tier}/…` where `{tier}` is `me`, `team`, `all` or
 | `/aggregate/{table}?aggregate=count&groupBy=` | `GET` | Counts by a grouping field |
 | `/changes/{table}?deltaToken=` | `GET` | Delta query, on routes with change tracking published |
 | `/actions/{name}[/{id}]` | `GET`, `POST` | Custom APIs, on the tiers each API lists. See below |
+| `/{table}/{id}/files` | `GET` | The files on a row, on tables with `files` (API 1.31.0+). Names, types, sizes — never content. Not on `public` |
+| `/{table}/{id}/files/{fileId}/link` | `POST` | A 5-minute read-only download URL for one file. See below |
 
 The `public` tier serves list, single record and actions only — no lookup, no
 aggregate, no changes.
@@ -144,6 +146,37 @@ same API also answers on `/{tier}/actions/{name}` — `me` if its
 In the SDK, `client.me` / `client.team` / `client.all` `.invokeFunction` /
 `.invokeAction` call the tier's route with the token (SDK 1.26.0 and later);
 `client.public` sends none. MCP has `invoke_custom_api`. See `sdk.md`.
+
+### Files: `/{table}/{id}/files` (API 1.31.0+)
+
+A note's attachment (`annotation.documentbody`) and an email's attachments
+(`activitymimeattachment.body`) are files. The API never returns their
+content. On a table that declares `files`:
+
+```
+GET  /{tier}/{table}/{id}/files               → { value: [{ fileId, fileName, mimeType, size }] }
+POST /{tier}/{table}/{id}/files/{fileId}/link → { url, expiresOn, fileName, mimeType, size }
+```
+
+- The permission is the one for reading the row on that tier, and the row must
+  be one the caller can see there. A file is reached **only through its row**:
+  a `fileId` from somebody else's email is a 404, the same as a missing one.
+- The link is a read-only SAS for one blob, HTTPS only, valid until `expiresOn`
+  (5 minutes by default). The browser downloads from Azure Storage with
+  `Content-Disposition: attachment`, so the file never runs in the portal.
+- `413` means the file is over the deployment's limit (25 MB by default).
+  `503` with `code: "downloads_not_configured"` means the deployment has no
+  download storage; listing still works.
+- A note is its own file, so its `fileId` is the note id. On a table with
+  `files`, the content column is not a field: `select=documentbody` is a 400.
+- `/schema` marks these tables with `files: true`.
+
+**The `emails` route** (bundled `default` scope) lists sent and received emails
+where the contact is the sender or a To/CC/BCC recipient. It matches on the
+email's activity parties, not on Regarding, so an internal email that staff
+filed against the contact doesn't appear. Its attachments come through
+`/emails/{id}/files`. The older `contactemails` / `caseemails` routes match only
+open (draft) emails, and match on Regarding: don't build on them.
 
 ### Why there is no delete
 
