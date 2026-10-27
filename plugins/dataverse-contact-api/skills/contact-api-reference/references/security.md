@@ -149,6 +149,35 @@ Keep `contact:write:team` and `contact:write:all` out of defaults altogether.
 - **`permissionGroup` widens a child to its parent's grants** — all of them,
   including any per-person `:all` grant on the parent's subject.
 
+### "Never visible" requirements belong in the scope
+
+When a customer says a column or a kind of record must **never** reach a
+citizen (a safeguarding flag, an internal note, a staff-only comment, another
+party's details), the scope either meets that requirement or nobody does. A
+portal that leaves the column out of its `select`, filters internal notes out
+after fetching them, or hides a field on screen has met nothing. The same token
+can call the route with `curl` and get it.
+
+For each such requirement, write down where the scope enforces it:
+
+- **A column** is absent from `fields` on every route over that table. That
+  includes routes in other scopes the same tokens can reach (any scope without
+  its own audience). It is also absent from every expand's field list that points
+  at the table, and from every FetchXML template on a route over it.
+- **A kind of row** is excluded by the `filters` (or a join step's `match`) of
+  every route that reaches the table, including child routes. An expand applies
+  no filters, so a lookup that can point at an excluded row still exposes that
+  row's expand fields.
+- **A custom API's response** is the plugin's to restrict. The server checks the
+  record going in, not what comes back, so review what the plugin returns.
+- **A hard "never"** is worth a second layer: leave the column out of the scope's
+  application user's security role, or put it under column security that user
+  doesn't hold. Then a later mistake in `fields` can't return it.
+
+If a requirement can only be met in the portal (shown on one screen, not on
+another), it is a presentation preference, not a "never". Say so to the
+customer rather than recording it as a control.
+
 ### The public tier
 
 - **`publicRead`** exposes every column in `fields` (not just `defaultSelect`),
@@ -339,7 +368,11 @@ With two real test contacts, A and B, for each route:
 | B invokes each `me` / `team` custom API with A's record id in the path | 404, and the API never ran |
 | A invokes an unbound custom API with A's record in the path and B's in the body | 400 — the body may not name a different record |
 | A citizen's token at `/all/actions/<name>`; no token at `/me/actions/<name>` | 403 (404 if the API doesn't list `all`); 401 |
+| For each never-visible column, A sends `select=<column>`, `filter=<column> eq <value>`, `orderBy=<column>` and `groupBy=<column>` to every route over that table, on every tier it serves | 400 unknown field. A 200 means the column is in `fields`, whatever the portal shows |
+| For each never-visible column, `/{scope}/schema?table=<route>` for every route over the table, and the raw JSON of each route's default select and of every expand | The column is absent. Check the API's response, not the portal's screen |
+| For each never-visible kind of row, staff create one against A's record; A then lists every route that reaches it (child routes included), on every tier, and follows every expand that can point at it | Not returned |
 
 The first needs only an admin credential (`admin.md`); the rest need a token
 for each test contact. Run them again after any change to a join, a permission,
-a `readOnly` flag or a custom API's `tiers` / `target`.
+a `readOnly` flag, `fields`, an expand, a route's `filters` or a custom API's
+`tiers` / `target`.

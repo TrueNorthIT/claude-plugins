@@ -130,7 +130,9 @@ token the scope accepts, including callers with no contact and — unless the
 scope has its own audience — users of other portals. Every column in `fields`
 can be selected by anyone who can read
 the route. A column not marked `readOnly` is the caller's to write. And nothing
-the browser does is a control. `references/security.md` sets out which side of
+the browser does is a control. So when a customer says some data must **never**
+be visible to a citizen, check that the scope enforces it (`fields`, expands,
+`filters`), not the portal. `references/security.md` sets out which side of
 the line each thing falls on, and the tests to run before go-live.
 
 ## First call against an unfamiliar deployment
