@@ -17,10 +17,14 @@
  * --new skips the API entirely and writes the same repo shape around a starter
  * main.tf — for a scope that does not exist yet.
  *
- * Auth: DATAVERSE_CONTACT_CONNECTION_KEY (or --key). This is the same value
- * as ADMIN_CONNECTION_KEY on the API deployment. Not needed for --new.
+ * Auth: DATAVERSE_CONTACT_CONNECTION_KEY (or --key), the same value as
+ * ADMIN_CONNECTION_KEY on the API deployment. Without one it signs in with az,
+ * as the provider does (1.8.0+): the API says which tenant and Dataverse the
+ * scope signs in to, and the account needs System Customizer there. Not
+ * needed for --new.
  */
 
+import { spawnSync } from "node:child_process";
 import { mkdirSync, writeFileSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
@@ -55,7 +59,7 @@ const scope = args.scope || process.env.SCOPE;
 const apiUrl = String(
   args.url || process.env.DATAVERSE_CONTACT_API_URL || DEFAULT_URL,
 ).replace(/\/+$/, "");
-const key =
+const connectionKey =
   args.key ||
   process.env.DATAVERSE_CONTACT_CONNECTION_KEY ||
   process.env.DATAVERSE_CONTACT_API_KEY;
@@ -63,9 +67,50 @@ const key =
 const isNew = args.new === true;
 
 if (!scope || scope === true) die("Missing --scope (or SCOPE env var).");
-if (!key && !isNew) {
-  die("Missing connection key — set DATAVERSE_CONTACT_CONNECTION_KEY or pass --key.");
+
+const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const DATAVERSE_RE = /^https:\/\/[a-z0-9.-]+$/i;
+
+// Without a key, sign in the way the provider does: GET /_admin/scopes (public)
+// says which tenant and Dataverse each scope's admin token must come from, and
+// az gets one there. A scope not listed yet signs in as default.
+async function azToken() {
+  let listing;
+  try {
+    const res = await fetch(`${apiUrl}/api/v2/_admin/scopes`);
+    if (res.ok) listing = await res.json();
+  } catch {
+    // reported below
+  }
+  const entries = listing?.scopeAuth ?? [];
+  const sa = entries.find((e) => e.name === scope) ?? entries.find((e) => e.name === "default");
+  const tenant = sa?.authority?.split("/").pop() ?? "";
+  const resource = (sa?.apiScope ?? "").replace(/\/\.default$/, "");
+  if (!GUID_RE.test(tenant) || !DATAVERSE_RE.test(resource)) {
+    die(
+      "No connection key, and the API doesn't say which tenant this scope signs in to. " +
+        "Set DATAVERSE_CONTACT_CONNECTION_KEY or pass --key.",
+    );
+  }
+  // Both values are checked above, so building the command is safe; az is a
+  // .cmd on Windows, which needs a shell.
+  const res = spawnSync(
+    `az account get-access-token --tenant ${tenant} --resource ${resource} --query accessToken -o tsv`,
+    { encoding: "utf8", shell: true, windowsHide: true, timeout: 60000 },
+  );
+  const token = (res.stdout ?? "").trim();
+  if (res.status !== 0 || !token) {
+    die(
+      `No connection key, and az couldn't get a token for ${resource} in tenant ${tenant}:\n` +
+        `${(res.stderr || res.error?.message || "").trim()}\n` +
+        `Run az login --tenant ${tenant}, or set DATAVERSE_CONTACT_CONNECTION_KEY.`,
+    );
+  }
+  console.log(`No connection key: signed in with az for ${resource} (tenant ${tenant}).`);
+  return token;
 }
+
+const key = connectionKey || (isNew ? undefined : await azToken());
 
 const outDir = args.out && args.out !== true ? args.out : `./${scope}-terraform`;
 
@@ -86,7 +131,9 @@ async function adminGet(path) {
       `GET /api/v2/_admin/${path} -> ${res.status} ${res.statusText}\n` +
         `${body.slice(0, 400)}\n` +
         (res.status === 401 || res.status === 403
-          ? "The connection key must be byte-identical to ADMIN_CONNECTION_KEY on the API."
+          ? connectionKey
+            ? "The connection key must be byte-identical to ADMIN_CONNECTION_KEY on the API."
+            : "Your az account needs System Customizer or System Administrator in the scope's Dataverse."
           : ""),
     );
   }
@@ -513,7 +560,8 @@ function variablesTf() {
     'variable "connection_key" {',
     "  type        = string",
     "  sensitive   = true",
-    '  description = "Pre-shared admin connection key. Must equal ADMIN_CONNECTION_KEY on the Contact API. Sent as the admin Bearer token."',
+    "  default     = null",
+    '  description = "Optional pre-shared admin connection key. Must equal ADMIN_CONNECTION_KEY on the Contact API. Leave it unset to sign in with az login or a pipeline identity."',
     "}",
     "",
     'variable "scope" {',
@@ -575,8 +623,14 @@ function runSh() {
     "set +a",
     "",
     'export TF_VAR_api_url="${DATAVERSE_CONTACT_API_URL}"',
-    'export TF_VAR_connection_key="${DATAVERSE_CONTACT_CONNECTION_KEY}"',
     '[[ -n "${SCOPE:-}" ]] && export TF_VAR_scope="${SCOPE}"',
+    "",
+    "# The key when there is one; without it the provider signs in with az login.",
+    'if [[ -n "${DATAVERSE_CONTACT_CONNECTION_KEY:-}" ]]; then',
+    '  export TF_VAR_connection_key="${DATAVERSE_CONTACT_CONNECTION_KEY}"',
+    "else",
+    '  echo "  (no connection key: signing in with az login)"',
+    "fi",
     "",
     "# Skip init when dev_overrides point at a locally built provider binary.",
     'TF_RC="${APPDATA:-$HOME}/terraform.rc"',
@@ -602,8 +656,10 @@ function envExample() {
     "# Dataverse Contact API — Terraform credentials",
     `DATAVERSE_CONTACT_API_URL=${apiUrl}`,
     "",
-    "# The pre-shared admin connection key. Must be byte-identical to",
-    "# ADMIN_CONNECTION_KEY on the API deployment. Never commit the filled-in .env.",
+    "# Optional pre-shared admin connection key. Leave it blank to sign in with",
+    "# az login (System Customizer in the scope's Dataverse). If set, it must be",
+    "# byte-identical to ADMIN_CONNECTION_KEY on the API deployment. Never commit",
+    "# the filled-in .env.",
     "DATAVERSE_CONTACT_CONNECTION_KEY=",
     "",
     `SCOPE=${scope}`,
@@ -633,7 +689,7 @@ function importSh(imports) {
     "set +a",
     "",
     'export TF_VAR_api_url="${DATAVERSE_CONTACT_API_URL}"',
-    'export TF_VAR_connection_key="${DATAVERSE_CONTACT_CONNECTION_KEY}"',
+    '[[ -n "${DATAVERSE_CONTACT_CONNECTION_KEY:-}" ]] && export TF_VAR_connection_key="${DATAVERSE_CONTACT_CONNECTION_KEY}"',
     'export TF_VAR_scope="${SCOPE}"',
     "",
     'terraform -chdir="$SCRIPT_DIR" init -input=false',
@@ -671,19 +727,23 @@ function readme(tableCount, apiCount) {
     "```bash",
     ...(isNew
       ? [
-          "cp .env.example .env      # fill in DATAVERSE_CONTACT_CONNECTION_KEY",
+          "cp .env.example .env      # the key is optional, see below",
           "bash run.sh plan          # review, then:",
           "bash run.sh apply",
         ]
       : [
-          "cp .env.example .env      # fill in DATAVERSE_CONTACT_CONNECTION_KEY",
+          "cp .env.example .env      # the key is optional, see below",
           "bash import.sh            # adopt what already exists into state",
           "bash run.sh plan          # expect: 1 to add (permissions_sync), 0 to change",
         ]),
     "```",
     "",
-    "The connection key is the API's `ADMIN_CONNECTION_KEY`. One key administers",
-    "every scope, so treat it as a deployment-wide secret — `.env` is gitignored.",
+    "Signing in: leave `DATAVERSE_CONTACT_CONNECTION_KEY` blank and the provider",
+    "uses your `az login` (you need System Customizer in the scope's Dataverse).",
+    "Or set it to the API's `ADMIN_CONNECTION_KEY`, which administers every scope",
+    "on the deployment, so treat it as a deployment-wide secret (`.env` is",
+    "gitignored). A pipeline can sign in as an app registration with no secret; see",
+    "the provider's [Signing in guide](https://registry.terraform.io/providers/TrueNorthIT/dataversecontact/latest/docs/guides/authentication).",
     "",
     "## Making a change",
     "",
@@ -707,13 +767,14 @@ function starterMainTf() {
     "  required_providers {",
     "    dataversecontact = {",
     '      source  = "TrueNorthIT/dataversecontact"',
-    '      version = ">= 1.1.1, < 2.0.0"',
+    '      version = ">= 1.8.0, < 2.0.0"',
     "    }",
     "  }",
     "}",
     "",
-    "# Auth is the pre-shared admin connection key, sent as the admin Bearer token.",
-    "# The same value must be set as ADMIN_CONNECTION_KEY on the Contact API.",
+    "# Signing in: the admin connection key when connection_key is set (it must",
+    "# equal ADMIN_CONNECTION_KEY on the Contact API); otherwise your az login, or",
+    "# a pipeline's workload identity federation (ARM_USE_OIDC and friends).",
     'provider "dataversecontact" {',
     "  api_url        = var.api_url",
     "  connection_key = var.connection_key",
@@ -828,7 +889,7 @@ if (isNew) {
   console.log(`Scaffolded a new scope "${scope}" -> ${outDir}`);
   console.log("");
   console.log("Next:");
-  console.log(`  cd ${outDir} && cp .env.example .env   # add the connection key`);
+  console.log(`  cd ${outDir} && cp .env.example .env   # key optional: blank = az login`);
   console.log("  # add a route per table, then:");
   console.log("  bash run.sh plan");
   process.exit(0);
@@ -879,13 +940,6 @@ const blocks = [];
 
 // Scope summary — the things a reviewer should see before reading 900 lines.
 const publicRoutes = tables.filter((d) => d.publicRead || d.publicCreate);
-const usesFilesOrMatch = tables.some(
-  (d) =>
-    d.files ||
-    [d.contactJoinPath, d.teamJoinPath, ...(d.alternateContactJoinPaths ?? [])].some((path) =>
-      (path ?? []).some((step) => step.match && Object.keys(step.match).length),
-    ),
-);
 
 const broadRoutes = Object.entries(storedPerms)
   .filter(([, actions]) => actions.some((a) => a === "all" || a.endsWith(":all")))
@@ -930,19 +984,16 @@ blocks.push(
     "  required_providers {",
     "    dataversecontact = {",
     '      source  = "TrueNorthIT/dataversecontact"',
-    // contact_email_column arrived in provider v1.2.0, contact_filters in v1.4.0,
-    // files and a join step's match in v1.5.0.
-    `      version = "${
-      usesFilesOrMatch
-        ? ">= 1.5.0"
-        : storedDefaults.contactFilters?.length ? ">= 1.4.0" : storedDefaults.contactEmailColumn ? ">= 1.2.0" : ">= 1.1.1"
-    }, < 2.0.0"`,
+    // 1.8.0 signs in without the key, and is later than every attribute this
+    // export writes (contact_filters 1.4.0, files and match 1.5.0).
+    '      version = ">= 1.8.0, < 2.0.0"',
     "    }",
     "  }",
     "}",
     "",
-    "# Auth is the pre-shared admin connection key, sent as the admin Bearer token.",
-    "# The same value must be set as ADMIN_CONNECTION_KEY on the Contact API.",
+    "# Signing in: the admin connection key when connection_key is set (it must",
+    "# equal ADMIN_CONNECTION_KEY on the Contact API); otherwise your az login, or",
+    "# a pipeline's workload identity federation (ARM_USE_OIDC and friends).",
     'provider "dataversecontact" {',
     "  api_url        = var.api_url",
     "  connection_key = var.connection_key",
@@ -1027,5 +1078,5 @@ if (builtIn.length) {
 }
 console.log("");
 console.log("Next:");
-console.log(`  cd ${outDir} && cp .env.example .env   # add the connection key`);
+console.log(`  cd ${outDir} && cp .env.example .env   # key optional: blank = az login`);
 console.log("  terraform fmt && bash import.sh && bash run.sh plan");

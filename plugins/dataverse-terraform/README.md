@@ -48,27 +48,25 @@ Only some of it, only some of the time:
 |---|---|
 | Explaining, reviewing or documenting a config | **Nothing** — no key, no network, not even Terraform |
 | Scaffolding a new scope | Nothing |
-| Exporting a live scope | `DATAVERSE_CONTACT_CONNECTION_KEY` + `DATAVERSE_CONTACT_API_URL` |
+| Exporting a live scope | `DATAVERSE_CONTACT_API_URL` and a way to sign in |
 | `plan` / `apply` / `import` / `destroy` | Terraform ≥ 1.0, plus both of the above |
 
-The connection key is the API deployment's `ADMIN_CONNECTION_KEY`. One key
-administers every scope on that deployment, so treat it as a deployment-wide
-secret — it belongs in `.env` (gitignored), never in a `.tf` file.
+There are two ways to sign in (provider 1.8.0+, which the generated configs
+require):
 
-**If the deployment has no key**, you are not stuck. The value defaults to `""`
-at deploy time, which omits the setting entirely and disables that route — but
-the admin plane also accepts a workforce Entra token, and the provider sends
-`connection_key` verbatim as a bearer token without inspecting it. So this
-works:
-
-```bash
-export TF_VAR_connection_key=$(az account get-access-token \
-  --resource "$DATAVERSE_URL" --query accessToken -o tsv)
-```
-
-Your account needs **System Customizer** or **System Administrator** in that
-Dataverse environment. The token lasts about an hour — ample for an apply,
-useless for CI, which is exactly the gap the pre-shared key fills.
+- **`az login`**, as someone with **System Customizer** or **System
+  Administrator** in the scope's Dataverse. This is what happens when no key is
+  set: the provider and the export script ask the API which tenant and
+  Dataverse the scope signs in to and get the token there. A pipeline signs in
+  the same way as an app registration through workload identity federation,
+  with no secret stored; the provider's
+  [Signing in guide](https://registry.terraform.io/providers/TrueNorthIT/dataversecontact/latest/docs/guides/authentication)
+  has the Azure DevOps and GitHub Actions YAML.
+- **The connection key**, the API deployment's `ADMIN_CONNECTION_KEY`, in
+  `DATAVERSE_CONTACT_CONNECTION_KEY`. When it's set it always wins, so existing
+  setups behave as before. One key administers every scope on that deployment,
+  so treat it as a deployment-wide secret: it belongs in `.env` (gitignored),
+  never in a `.tf` file.
 
 ## Adopting a scope that already exists
 
@@ -77,7 +75,7 @@ The common case, and the one that pays off immediately:
 ```bash
 node scripts/export-scope.mjs --scope rcportal --out ./rcportal-terraform
 cd rcportal-terraform
-cp .env.example .env        # add the connection key
+cp .env.example .env        # key optional: left blank, it signs in with az
 bash import.sh              # adopt the live routes into state
 bash run.sh plan            # expect: 1 to add, 0 to change
 ```
@@ -176,7 +174,8 @@ dataverse-terraform/
 |---|---|
 | `403 Missing required permission` on every call | No published `defaults.json` — `permissions_sync` missing or never applied |
 | Provider state-consistency error about a dropped field | A polymorphic navigation property (`customerid`, `parentcustomerid_account`) was declared in `fields`. Use it in joins and `expand` only |
-| `401`/`403` from the provider itself | `connection_key` isn't byte-identical to `ADMIN_CONNECTION_KEY` |
+| `401`/`403` from the provider with a key set | `connection_key` isn't byte-identical to `ADMIN_CONNECTION_KEY` |
+| `403 Not authorized to administer scope` with no key | The person or app registration signed in fine but lacks System Customizer in that Dataverse |
 | `Provider produced inconsistent result after apply` on `bind_field`, `field_count`, `lookup_search_contains` or `aliases` | Provider older than v1.1.1. Run `terraform init -upgrade` and commit `.terraform.lock.hcl`. If a create failed, the table is tainted: `terraform untaint` it before applying, or the next apply deletes it permanently |
 | `company_model { … }` won't parse | It's a nested attribute, not a block: `company_model = { … }` |
 | `An argument named "contact_email_column" is not expected here` | Provider older than v1.2.0. Run `terraform init -upgrade` and commit `.terraform.lock.hcl` |

@@ -25,11 +25,11 @@ Work out which one applies before doing anything else:
 | a scope that does not exist yet | **build** | step B1 |
 | to understand a config that already exists — review it, hand it over, or check who can see what | **explain** | step C1 |
 
-If the user hasn't said, list the scopes and ask — it takes one call:
+If the user hasn't said, list the scopes and ask. It takes one call, and the
+listing is public:
 
 ```bash
-curl -s -H "Authorization: Bearer $DATAVERSE_CONTACT_CONNECTION_KEY" \
-  "$DATAVERSE_CONTACT_API_URL/api/v2/_admin/scopes"
+curl -s "$DATAVERSE_CONTACT_API_URL/api/v2/_admin/scopes"
 ```
 
 Adopt is almost always the right answer for an existing portal, and it is the
@@ -63,19 +63,37 @@ credentials, no network, not even Terraform installed:
 | Explaining, reviewing or documenting a config (mode C) | Nothing. It is a read of the `.tf` files in front of you |
 | Scaffolding a new scope (`--new`, step B1) | Nothing |
 | Writing or editing resources by hand | Nothing to write; credentials only to apply |
-| Exporting a live scope (step A1) | The connection key and API URL |
-| `plan`, `apply`, `import`, `destroy` | Terraform ≥ 1.0 on PATH, plus both of the below |
+| Exporting a live scope (step A1) | The API URL and a way to sign in |
+| `plan`, `apply`, `import`, `destroy` | Terraform ≥ 1.0 on PATH, the API URL and a way to sign in |
 
-- **The admin connection key.** Byte-identical to `ADMIN_CONNECTION_KEY` on the
-  API deployment, exported as `DATAVERSE_CONTACT_CONNECTION_KEY`. One key
-  administers every scope on that deployment, so treat it as a deployment-wide
-  secret: it belongs in `.env` (gitignored), never in a `.tf` file.
 - **API base URL** as `DATAVERSE_CONTACT_API_URL`, e.g.
   `https://api.dataverse-contact.tnapps.co.uk`.
+- **A way to sign in** (provider 1.8.0+, which every config this skill writes
+  requires). Either of:
+  - **`az login`** as someone with System Customizer (or System Administrator)
+    in the scope's Dataverse. Used whenever no key is set; the provider and
+    `scripts/export-scope.mjs` ask the API which tenant and Dataverse to get the
+    token for. In a pipeline the equivalent is an app registration signing in
+    through workload identity federation (`ARM_USE_OIDC`, see
+    `references/provider-reference.md`).
+  - **The admin connection key**, byte-identical to `ADMIN_CONNECTION_KEY` on
+    the API deployment, exported as `DATAVERSE_CONTACT_CONNECTION_KEY`. When set
+    it always wins. One key administers every scope on that deployment, so
+    treat it as a deployment-wide secret: it belongs in `.env` (gitignored),
+    never in a `.tf` file.
 
-When a step that genuinely needs the key can't find one, stop and ask for it.
-Do not invent one, and do not fall back to the `contact-admin` CLI's Entra
-login — that is a different credential and the provider cannot use it.
+For the `curl` and `contact-admin` calls below, set `ADMIN_TOKEN` once: the key
+if there is one, otherwise an `az` token for the scope's Dataverse (its
+`apiScope` in the scopes listing, without `/.default`):
+
+```bash
+ADMIN_TOKEN="${DATAVERSE_CONTACT_CONNECTION_KEY:-$(az account get-access-token \
+  --resource "<Dataverse URL>" --query accessToken -o tsv)}"
+```
+
+When there's no key and `az` can't sign in (not logged in to that tenant, or the
+account lacks the role), stop and say so. Never invent a key. Don't use the
+`contact-admin login` key in the provider: it is a different credential.
 
 **Never ask for a key to answer a question the files already answer.** "What
 does this scope expose", "who can see quotes", "does this PR widen access" are
@@ -104,7 +122,7 @@ config, not from blob storage, so Terraform has no business owning them.
 
 ```bash
 cd <dir>
-cp .env.example .env        # add the connection key
+cp .env.example .env        # key optional: left blank, it signs in with az
 bash import.sh
 bash run.sh plan
 ```
@@ -186,13 +204,13 @@ curl -s "$DATAVERSE_CONTACT_API_URL/api/v2/<scope>/schema?table=<route>"
 ```
 
 **3. Neither — the API has never served this table.** Only now fall back to
-Dataverse metadata, through the `contact-admin` CLI. The Terraform connection
-key is enough — pass it as `CONTACT_ADMIN_TOKEN`; a workforce Entra login
-(`contact-admin login`) works too:
+Dataverse metadata, through the `contact-admin` CLI. `ADMIN_TOKEN` (the key or
+an `az` token, see Prerequisites) is enough as `CONTACT_ADMIN_TOKEN`; a
+workforce Entra login (`contact-admin login`) works too:
 
 ```bash
 npm install -g @truenorth-it/contact-admin
-export CONTACT_ADMIN_TOKEN="$DATAVERSE_CONTACT_CONNECTION_KEY"
+export CONTACT_ADMIN_TOKEN="$ADMIN_TOKEN"
 contact-admin discover entities --url "$API_URL" --scope "$SCOPE" --json
 contact-admin discover entity <logicalName> --url "$API_URL" --scope "$SCOPE" --json
 contact-admin discover children <parentLogicalName> --url "$API_URL" --scope "$SCOPE" --json
@@ -216,12 +234,12 @@ The same rule for custom APIs. "The note API" is not a unique name, and a
 guessed parameter list publishes and then fails at call time. The deployment
 lists every custom API in the scope's Dataverse — plus the built-in messages
 (`CloseIncident`, `ExpandCalendar`) — with the binding, the bound table and
-each parameter's type, using the connection key:
+each parameter's type, using `ADMIN_TOKEN`:
 
 ```bash
-curl -s -H "Authorization: Bearer $DATAVERSE_CONTACT_CONNECTION_KEY" \
+curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
   "$DATAVERSE_CONTACT_API_URL/api/v2/_admin/<scope>/discover-custom-apis"
-curl -s -H "Authorization: Bearer $DATAVERSE_CONTACT_CONNECTION_KEY" \
+curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
   "$DATAVERSE_CONTACT_API_URL/api/v2/_admin/<scope>/discover-custom-apis?uniqueName=<uniqueName>"
 ```
 
@@ -292,7 +310,7 @@ this order:
 
 ```bash
 cd <dir>
-cp .env.example .env        # add the connection key
+cp .env.example .env        # key optional: left blank, it signs in with az
 bash run.sh plan
 bash run.sh apply
 ```
@@ -300,7 +318,7 @@ bash run.sh apply
 Then prove the routes actually answer, rather than trusting the apply:
 
 ```bash
-curl -s -H "Authorization: Bearer $DATAVERSE_CONTACT_CONNECTION_KEY" \
+curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
   "$DATAVERSE_CONTACT_API_URL/api/v2/_admin/<scope>/table-definitions" | head -c 400
 ```
 
@@ -308,7 +326,7 @@ Answering is half of it. Prove each `me` route also keeps strangers out — a
 contact id that matches nobody must get nothing back:
 
 ```bash
-CONTACT_ADMIN_TOKEN="$DATAVERSE_CONTACT_CONNECTION_KEY" \
+CONTACT_ADMIN_TOKEN="$ADMIN_TOKEN" \
   contact-admin tables test-query <route> --tier me \
   --contact-id 3f2a8c1e-0000-4000-8000-000000000000 \
   --url "$DATAVERSE_CONTACT_API_URL" --scope <scope> --json
@@ -421,7 +439,10 @@ they don't — the second must be refused.
 |---|---|
 | `403 Missing required permission: <route>` on every call, reads included | no published `defaults.json` — `permissions_sync` is missing or was never applied |
 | provider state-consistency error mentioning a dropped field | a polymorphic navigation property (`customerid`, `parentcustomerid_account`) was declared in `fields`. Use it in joins and `expand` only |
-| `401`/`403` from the provider itself | `connection_key` isn't byte-identical to `ADMIN_CONNECTION_KEY` on the deployment |
+| `401`/`403` from the provider with a key set | `connection_key` isn't byte-identical to `ADMIN_CONNECTION_KEY` on the deployment |
+| `403 Not authorized to administer scope` with no key | signed in fine, but that person or app registration lacks System Customizer in the scope's Dataverse (an app registration must be an application user there) |
+| `no connection key is set, so the provider signs in with Azure CLI, and couldn't…` | `az` isn't signed in to the scope's tenant (`az login --tenant <id>`), or the user meant to use the key and it isn't exported in this shell |
+| `Missing System.AccessToken` in Azure DevOps | the step's `env` lacks `SYSTEM_ACCESSTOKEN: $(System.AccessToken)` |
 | a one-line `lookup_search_contains = [] -> null` diff that never goes away | the attribute is omitted from config; set it explicitly, `[]` if unused |
 | `company_model { … }` fails to parse | it is a nested attribute, not a block: `company_model = { … }` |
 | apply fails publishing `permissions_sync` with `contains unknown action` | a typo in `default_permissions` — the API rejects the whole document rather than publish it |

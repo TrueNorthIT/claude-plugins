@@ -939,7 +939,8 @@ function terraformEnv({ apiUrl, key, scope }) {
     `# ${apiUrl}.`,
     "#",
     "# GITIGNORED — terraform/.gitignore excludes .env. Never commit this file.",
-    "# The connection key below is the API's ADMIN_CONNECTION_KEY. One key",
+    "# The connection key below is the API's ADMIN_CONNECTION_KEY. It is optional:",
+    "# left blank, Terraform (provider 1.8.0+) signs in with your az login. One key",
     "# administers every scope on the deployment, so treat it as a deployment-wide",
     "# secret. run.sh sources this file and exports the TF_VAR_* the provider reads.",
     "#",
@@ -1167,8 +1168,8 @@ if (!key && appName) {
   } else if (!azUnavailable) {
     warn(`${appName} has no ADMIN_CONNECTION_KEY app setting.`);
     info("That is a normal state, not a mistake — the deploy-time variable");
-    info("defaults to empty, which omits the setting entirely. Terraform can use");
-    info("a workforce Entra token instead; see PREREQUISITES.md section B.");
+    info("defaults to empty, which omits the setting entirely. Terraform (provider");
+    info("1.8.0+) then signs in with your az login; see PREREQUISITES.md section B.");
   }
 }
 
@@ -1479,10 +1480,9 @@ for (const p of [terraformEnvPath, appEnvPath]) {
 }
 
 if (!key) {
-  warn("Writing terraform/.env with an empty connection key.");
-  info("Terraform will need a credential from somewhere. Either fill the key in");
-  info("by hand, or export a workforce Entra token as TF_VAR_connection_key —");
-  info("run.sh leaves an exported token alone when the file's key is blank.");
+  info("Writing terraform/.env with no connection key. Terraform (provider 1.8.0+)");
+  info("will sign in with your az login, which needs System Customizer in the");
+  info("scope's Dataverse. Fill the key in by hand to use it instead.");
 }
 
 writeFileSync(terraformEnvPath, terraformEnv({ apiUrl, key, scope }), "utf8");

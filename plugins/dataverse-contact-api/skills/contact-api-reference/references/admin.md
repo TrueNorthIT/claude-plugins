@@ -53,26 +53,18 @@ where you would rather not handle one.
 
 **Both tools take either credential**, because all three arrive as one
 `Authorization: Bearer …` header and the API resolves them in the order above.
-Neither tool inspects what it is holding.
 
-| Tool | Normally | But also accepts |
+| Tool | With the key | Without it |
 |---|---|---|
-| Terraform provider | `connection_key` | any bearer token — it sends `Bearer <connection_key>` verbatim |
-| `contact-admin` | workforce Entra (device code / SP) | `--token <jwt>` or `CONTACT_ADMIN_TOKEN` |
+| Terraform provider (1.8.0+) | `connection_key` / `DATAVERSE_CONTACT_CONNECTION_KEY`, which always wins | Signs in with workforce Entra itself: `az login` by default, or in a pipeline workload identity federation (`ARM_USE_OIDC`) or a managed identity. It reads each scope's tenant and Dataverse from the public `GET /_admin/scopes` (`scopeAuth`) |
+| `contact-admin` | `CONTACT_ADMIN_TOKEN="$DATAVERSE_CONTACT_CONNECTION_KEY"` | workforce Entra (device code / SP), or `--token` / `CONTACT_ADMIN_TOKEN` with an `az` token |
 
-That interchangeability is the way out of the two prerequisite dead ends:
-
-```bash
-# No ADMIN_CONNECTION_KEY on the deployment? Give Terraform an Entra token.
-export TF_VAR_connection_key=$(az account get-access-token \
-  --resource "$DATAVERSE_URL" --query accessToken -o tsv)
-
-# Have the key but no Azure sign-in? Give the CLI the key.
-export CONTACT_ADMIN_TOKEN="$DATAVERSE_CONTACT_CONNECTION_KEY"
-```
-
-An Entra token lasts about an hour — ample for an apply, useless for CI, which
-is the whole reason the pre-shared key exists.
+So a deployment with no `ADMIN_CONNECTION_KEY` needs nothing special for
+Terraform: leave the key unset and sign in with `az`. A pipeline signs in as an
+app registration added to the scope's Dataverse as an application user with
+System Customizer, so no secret is stored and nothing expires. Provider versions
+before 1.8.0 only send `connection_key`; on those, an `az` token exported as
+`TF_VAR_connection_key` works for about an hour.
 
 ## Reading the effective permissions
 

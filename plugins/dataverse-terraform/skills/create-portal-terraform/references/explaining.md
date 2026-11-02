@@ -126,8 +126,9 @@ this provider:
   recycles *and* permanently deletes each route — there is no recycle-bin copy
   to restore from afterwards. The Dataverse tables and their data survive; the
   published schema does not, and only a re-apply brings it back.
-- **State holds no secrets** beyond the config itself — the connection key is a
-  provider argument, supplied per run from `.env`.
+- **State holds no secrets** beyond the config itself. The provider signs in
+  per run, with an `az` login or pipeline identity, or the connection key from
+  `.env`.
 - **The riskiest single line is a permission**, not a schema. Widening `me` to
   `team`, or adding `public_read`, changes who can see other people's records
   the moment it applies. Close behind: a `read_only` removed from an identity
