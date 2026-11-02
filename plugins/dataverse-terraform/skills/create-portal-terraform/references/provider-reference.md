@@ -1,7 +1,8 @@
 # `TrueNorthIT/dataversecontact` — provider reference
 
-Complete surface of the Terraform provider, taken from the v1.1.1 schema.
-Require **v1.1.1 or later**: earlier versions fail apply with "Provider produced
+Complete surface of the Terraform provider, taken from the v1.1.1 schema plus
+later additions. Require **v1.8.0 or later** for new configs, so they can sign
+in without the admin key. Never go below v1.1.1: earlier versions fail apply with "Provider produced
 inconsistent result" whenever a lookup omits `bind_field`, `lookup_search_contains`
 is omitted, or a field is added (v1.0.x), and a failed create taints the table.
 
@@ -12,27 +13,66 @@ terraform {
   required_providers {
     dataversecontact = {
       source  = "TrueNorthIT/dataversecontact"
-      version = ">= 1.1.1, < 2.0.0"
+      version = ">= 1.8.0, < 2.0.0"
     }
   }
 }
 
 provider "dataversecontact" {
   api_url        = var.api_url        # or DATAVERSE_CONTACT_API_URL
-  connection_key = var.connection_key # or DATAVERSE_CONTACT_CONNECTION_KEY
+  connection_key = var.connection_key # optional; or DATAVERSE_CONTACT_CONNECTION_KEY
 }
 ```
+
+### Signing in (v1.8.0+)
+
+A run signs in one way. With a connection key set, the provider sends it and
+ignores everything else, exactly as before 1.8.0. Without one it signs in with
+Microsoft Entra ID, in this order: `use_oidc` (a pipeline's workload identity
+federation), `use_msi` (the machine's managed identity), `use_cli` (your
+`az login`, on by default). It reads azurerm's `ARM_*` variable names.
+
+For Entra, the provider asks the API (`GET /_admin/scopes`, public) which tenant
+and Dataverse each scope signs in to, so neither is configured. The identity
+needs **System Customizer** (or System Administrator) in each scope's
+Dataverse: a person as a Dataverse user, a pipeline's app registration or a
+managed identity as an **application user**. A scope the API doesn't list yet
+signs in as `default`.
 
 | Provider argument | Notes |
 |---|---|
 | `api_url` | Base URL, e.g. `https://api.dataverse-contact.tnapps.co.uk`. Env: `DATAVERSE_CONTACT_API_URL`. |
-| `connection_key` | Sensitive. Sent as `Authorization: Bearer <key>` on every admin call. Must be **byte-identical** to `ADMIN_CONNECTION_KEY` on the API deployment. Env: `DATAVERSE_CONTACT_CONNECTION_KEY`. |
+| `connection_key` | Optional, sensitive. Sent as `Authorization: Bearer <key>` on every admin call. Must be **byte-identical** to `ADMIN_CONNECTION_KEY` on the API deployment. Env: `DATAVERSE_CONTACT_CONNECTION_KEY`. When set, it always wins. |
 | `api_key` | Deprecated alias for `connection_key`. Don't use in new configs. |
+| `use_oidc` | Sign in through workload identity federation: an Azure DevOps service connection (with `ado_pipeline_service_connection_id`), GitHub Actions, or a token in `ARM_OIDC_TOKEN` / `ARM_OIDC_TOKEN_FILE_PATH`. Needs `client_id`. Env: `ARM_USE_OIDC`. |
+| `client_id` | The app registration (or user-assigned managed identity) to sign in as. Env: `ARM_CLIENT_ID`. |
+| `ado_pipeline_service_connection_id` | Azure DevOps service connection ID. The step must map `SYSTEM_ACCESSTOKEN: $(System.AccessToken)` and run in a task that names the connection (`AzureCLI@2`). Env: `ARM_ADO_PIPELINE_SERVICE_CONNECTION_ID` or `ARM_OIDC_AZURE_SERVICE_CONNECTION_ID`. |
+| `use_msi` | Sign in with the machine's managed identity (own tenant only). Env: `ARM_USE_MSI`. |
+| `use_cli` | Sign in with `az login`. Default `true`. Env: `ARM_USE_CLI`. |
+| `tenant_id` | Only used when the API doesn't say which tenant a scope signs in to. Env: `ARM_TENANT_ID`. |
 
-One key administers **every** scope on that deployment, so it is a
-deployment-wide secret. It is a different credential from the one the
-`contact-admin` CLI uses (workforce Entra + Dataverse security roles) — both
-reach the same admin plane.
+The key administers **every** scope on that deployment and skips the Dataverse
+role check, so it is a deployment-wide secret. An Entra sign-in is a named
+person or app, limited to the environments where it has the role. The
+provider's [Signing in guide](https://registry.terraform.io/providers/TrueNorthIT/dataversecontact/latest/docs/guides/authentication)
+has the Azure DevOps and GitHub Actions pipeline YAML.
+
+Azure DevOps step, for reference:
+
+```yaml
+- task: AzureCLI@2
+  inputs:
+    azureSubscription: <service connection name>
+    scriptType: bash
+    scriptLocation: inlineScript
+    inlineScript: terraform init && terraform apply -auto-approve
+  env:
+    DATAVERSE_CONTACT_API_URL: https://api.dataverse-contact.tnapps.co.uk
+    ARM_USE_OIDC: "true"
+    ARM_CLIENT_ID: $(dataverseClientId)
+    ARM_ADO_PIPELINE_SERVICE_CONNECTION_ID: $(dataverseConnectionId)
+    SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+```
 
 ## `dataversecontact_table`
 
@@ -621,12 +661,14 @@ after adopting an existing scope; the apply re-publishes the same defaults.
 
 ## Admin endpoints behind the provider
 
-Useful for reading a scope's current state without Terraform. All take
-`Authorization: Bearer <connection_key>`.
+Useful for reading a scope's current state without Terraform. All but the
+scopes listing take `Authorization: Bearer <token>`: the connection key, or an
+Entra token for the scope's Dataverse
+(`az account get-access-token --resource <Dataverse URL> --tenant <tenant> --query accessToken -o tsv`).
 
 | Endpoint | Returns |
 |---|---|
-| `GET /api/v2/_admin/scopes` | Every scope on the deployment. |
+| `GET /api/v2/_admin/scopes` | Public. Every scope on the deployment, plus `scopeAuth`: each scope's sign-in `authority` (ending in the tenant ID) and `apiScope` (its Dataverse URL + `/.default`). |
 | `GET /api/v2/_admin/{scope}/table-definitions` | Every route's **full** schema — enough to generate HCL for the whole scope in one call. |
 | `GET /api/v2/_admin/{scope}/table-manager/{route}` | One route's stored schema plus any draft. |
 | `GET /api/v2/_admin/{scope}/custom-api-definitions` | Custom API routes, **resolved** (adds derived `apiType`, explicit nulls). |
