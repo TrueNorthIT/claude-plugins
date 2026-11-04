@@ -178,6 +178,100 @@ filed against the contact doesn't appear. Its attachments come through
 `/emails/{id}/files`. The older `contactemails` / `caseemails` routes match only
 open (draft) emails, and match on Regarding: don't build on them.
 
+### Documents: `/{table}/{id}/documents` (SharePoint, API 1.34.0+)
+
+A record's SharePoint folder is served **like a child table of the record**.
+It has fields, declared columns, fixed filters and its own permission. Create
+is an upload. Files never go into Dataverse: SharePoint is the store.
+
+```
+GET  /{tier}/{table}/{id}/documents[?folder=Photos&filter=…&orderBy=…]   → one folder level
+POST /{tier}/{table}/{id}/documents/{documentId}/link                    → short-lived download URL
+POST /{tier}/{table}/{id}/documents/uploads          { name, size, contentType, folder? }  → { uploadId, url, method, headers }
+PUT  <url>  (the bytes, with exactly those headers, no Authorization)
+POST /{tier}/{table}/{id}/documents/uploads/{uploadId}/complete         → the new document
+```
+
+- **Fields of every document:** `id`, `name`, `library` (1.48.0), `folder`,
+  `isFolder`, `mimeType`, `size`, `createdon`, `modifiedon`, plus the route's
+  declared library columns (`ShowOnPortal`, `Source`, `Title`…). `library` and
+  `folder` are ordinary fields: filter on them like any other.
+- **Permission:** the documents' own subject (e.g. `casedocuments`, `:team`,
+  `:all`), not the record's. Reading the case doesn't list its files. Upload
+  needs `casedocuments:create` at that tier.
+- **Fixed filters** (e.g. `ShowOnPortal eq true`) always apply, so an officer
+  decides what a citizen sees.
+- **Fixed values on every upload** (`documents.upload.columns`): declared
+  columns (`Source: "Resident"`), and since 1.48.0 the two fields that say
+  **where** the file goes. `folder` is a folder below the record's folder (a
+  caller can't then send their own `folder`: 400). `library` is the library's
+  URL name. The caller can't send or change any of them.
+- **Several libraries (1.48.0):** a record can have folders in more than one
+  library, and the list merges them. Each row's `library` says which. An
+  upload goes to the record's folder in the fixed (or an invite's) library,
+  made the way Dataverse makes one if there is none; with no library named, it
+  goes to the record's first folder. **Every library needs the route's
+  declared columns.** A fixed column missing there gives a 503 and the file is
+  deleted again.
+- A file never overwrites another (SharePoint renames a clash). Limits:
+  `upload.maxBytes` (default 10 MiB, capped by the deployment), allowed
+  `extensions`, and never executables.
+
+### Invite links: `/{scope}/invite` (API 1.37.0+)
+
+A link that lets whoever holds it do **one thing, once**, with no account:
+
+| `operation` | Does | Used at |
+|---|---|---|
+| `create` | Log a new row, or add a child row under a record (e.g. a **note** on a case) | `POST /{scope}/invite/{route}` · `POST /{scope}/invite/{route}/{id}/{child}` |
+| `update` | Change the named `fields` of one row | `PATCH /{scope}/invite/{route}/{id}` |
+| `upload` | Upload one document to a record (the three upload steps above) | `POST /{scope}/invite/{route}/{id}/documents/uploads` … `/complete` |
+| `invoke` (1.47.0) | Run one custom API action | `POST /{scope}/invite/actions/{name}[/{id}]` |
+
+- **The token** travels in the `X-Invite-Token` header, never the path. The
+  scope's `inviteUrl` puts it in the link's fragment: `…/invite#token={token}`.
+- **Describe first:** `GET /{scope}/invite` returns the operation, route,
+  record (its lookup fields, e.g. the case number), child, the officer's
+  message, expiry, `requiresSignIn`, the `fields` to ask for, the preset
+  `values`, upload limits, or an action's `parameters`.
+- **Sending:** `POST /{tier}/{route}[/{id}]/invites` needs `<subject>:invite`
+  **plus** the permission to do it yourself (`write`, `create`, or the
+  documents' `create`) at that tier. Also: the admin endpoint, MCP
+  `create_invite`, SDK `createInvite(…)`. From Dataverse, officers and flows
+  use the actions `cpa_SendInviteEmail` (sends the email, on the record's
+  timeline) or `cpa_CreateInviteLink` (returns the link). Those need the role
+  *Portal Invite Sender*.
+- **At most once:** a used link is 409 `invite_used`. Every other miss
+  (expired, revoked, wrong secret, a route that stopped taking invites) is the
+  same 404 `invite_not_found`. Email-bound links need that person signed in
+  (401 / 403).
+
+**Preset values (1.47.0)** are `values` on the invite: fields the sender fixes
+and the invitee sees in describe but can't send or change. Sending one anyway
+is a 400 before the link is spent. They're re-checked every time the link is
+used: one that no longer fits the route makes the link a 404.
+
+| Operation | `values` can name |
+|---|---|
+| `create` | Writable fields of the new or child row (a note's `subject`) |
+| `update` | Writable fields not in `fields` |
+| `upload` | Declared document columns (`Title`), and where the file goes: `folder` and `library` (1.48.0), unless the route fixes them; `library` must be one of `documents.upload.libraries` |
+| `invoke` | The action's parameters |
+
+Never a lookup, never a column that decides who gets in. A link can't do more
+than its sender could themselves.
+
+```jsonc
+// "Tell us where it is": a note with a preset title
+{ "operation": "create", "target": "casenotes", "values": { "subject": "Where exactly it is" },
+  "message": "Can you tell us exactly where the pothole is?" }
+// "Send a photo of your Blue Badge": into the Evidence library, a Blue Badge folder, titled
+{ "operation": "upload", "values": { "Title": "Blue Badge", "library": "Evidence", "folder": "Blue Badge" } }
+// The same from Dataverse (solution 2.8.0.1+): Values is a JSON string
+cpa_SendInviteEmail { "Table": "incident", "RecordId": "…", "Operation": "upload",
+  "ToContactId": "…", "Values": "{\"Title\":\"Blue Badge\",\"library\":\"Evidence\"}" }
+```
+
 ### Why there is no delete
 
 The record handler allows `GET` and `PATCH`; the list handler allows `GET` and
