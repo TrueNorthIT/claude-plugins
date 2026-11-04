@@ -176,6 +176,71 @@ blocks from whatever row the lookup points at, with no scoping of its own and
 on every tier — list fields explicitly, and only ones anyone who can read the
 parent may see.
 
+### `documents` and `invites` (SharePoint files and one-time links)
+
+A record's SharePoint folder is published **like a child table of the record**,
+with its own permission, fields, filters and fixed values. Invites let a
+council ask someone with no account to do one thing, once.
+
+```hcl
+resource "dataversecontact_table" "case" {
+  # …
+  invites = ["update"]            # one-time links that change named columns of one case
+
+  documents {
+    permission = "casedocuments"  # its own subject: reading a case doesn't list its files
+    # folder   = "Public"         # optional: serve this sub-folder of each case's folder
+    columns    = { ShowOnPortal = "boolean", Source = "string", Title = "string" }  # declared library columns
+    filters    = ["ShowOnPortal eq true"]                                          # always applied
+
+    upload {
+      # Fixed on every upload: declared columns, and (Contact API 1.48.0) where the
+      # file goes, folder below the case's folder and library by URL name.
+      columns = { ShowOnPortal = "true", Source = "Resident" }
+      # columns = { ShowOnPortal = "true", Source = "Resident", folder = "Evidence", library = "Proof" }
+      invites   = true                  # one-time upload links
+      libraries = ["Evidence"]          # 1.48.0: the libraries an invite's library may be (not with a fixed library)
+      # max_bytes  = 5242880
+      # extensions = ["pdf", "jpg", "png"]
+    }
+  }
+}
+
+resource "dataversecontact_table" "casenotes" {
+  # …
+  invites = ["create"]            # one-time links that add one note to a case
+}
+
+resource "dataversecontact_permissions_sync" "this" {
+  invite_url = "https://portal.example.gov.uk/invite#token={token}"  # https, token in the fragment
+  default_permissions = {
+    casedocuments = ["me"]        # list; add "create" to let signed-in citizens upload
+  }
+}
+```
+
+- Every listed document has `id`, `name`, `library` (1.48.0), `folder`,
+  `isFolder`, `mimeType`, `size`, `createdon`, `modifiedon` and the declared
+  columns. `folder` and `library` are built-in, so don't declare them in
+  `columns`.
+- **Every library uploads can reach needs the declared columns.** A fixed
+  column missing in a library gives a 503 there and the file is deleted again.
+- A fixed `folder` stops a caller sending their own. A fixed `library` can't
+  sit beside `libraries`: the API refuses the save.
+- Needs: document management on for the table in Dataverse; the API's service
+  principal with Sites.Selected Write on the site; its app user with Create on
+  Document Location; a CORS rule on the downloads storage allowing PUT.
+- **Version gate:** never apply `upload.columns.folder`, `.library` or
+  `upload.libraries` to an API older than 1.48.0. It refuses them as unknown
+  settings, and the table drops out of the scope.
+- Sending an invite through the API needs `<subject>:invite` plus the
+  do-it-yourself permission at that tier (e.g. `casenotes = ["invite", "create"]`).
+  Officers send them from Dataverse (`cpa_SendInviteEmail`, role *Portal Invite
+  Sender*), so a citizen scope usually grants no `invite` at all.
+- An invite can **preset values** the invitee sees but can't change: a note's
+  `subject`, a document's `Title`, `library` and `folder`. That's per invite,
+  not Terraform. See the Contact API reference skill, `routes.md`.
+
 ## `dataversecontact_custom_api`
 
 Registers a Dataverse Custom API as a callable route.

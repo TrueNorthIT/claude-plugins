@@ -422,6 +422,49 @@ pair them with officer provisioning, or a flow that switches the contact on.
 Keep every column the filters read `read_only` on every route: a caller who can
 write it can switch themselves on.
 
+## SharePoint documents: the record's files, as a table
+
+Treat a record's SharePoint folder as **a child table of the record**. It has
+its own permission subject, fields (`library`, `folder` and the rest), declared
+columns, fixed filters, and fixed values on create (upload). Decide it the way
+you'd decide a child route:
+
+- **Who lists?** Grant the documents' subject (`casedocuments = ["me"]`), never
+  just the case. Add a fixed filter such as `ShowOnPortal eq true`, so an
+  officer chooses what a citizen sees.
+- **Who adds?** `create` lets signed-in citizens upload whenever they like. A
+  scope where a resident only sends a file **when asked** grants no `create`,
+  and uses `upload { invites = true }` instead (see invites below).
+- **What's fixed on every upload?** Put it in `upload.columns`, so the citizen
+  can see their own file (`ShowOnPortal = "true"`) and it's marked as theirs
+  (`Source = "Resident"`). From Contact API 1.48.0 the same map fixes **where**
+  it goes: `folder = "Evidence"` (inside each case's folder) and
+  `library = "Proof"`. These are fields like the others, not special settings.
+- **Several libraries?** Only for invites: `upload.libraries = ["Evidence"]`
+  lists the libraries an upload invite may pick. Every library a file can land
+  in needs the declared columns, or uploads there fail (503).
+
+## Invite links: one thing, once, with no account
+
+An invite is a link a council sends so someone with no account can do **one**
+thing **once**: add a note to their case, change named fields, upload one
+document, or run one action. Turn it on per route (`invites = ["create"]` on
+`casenotes`, `["update"]` on `case`, `upload { invites = true }` for documents)
+and set `invite_url` on the permissions sync.
+
+- **Who sends?** Usually officers, from Dataverse (`cpa_SendInviteEmail` in a
+  button or a flow, role *Portal Invite Sender*). Then the citizen scope grants
+  **no** `invite` permission. Grant `<subject>:invite` only if portal users
+  themselves should send links, and only with the matching do-it-yourself
+  permission.
+- **Preset values** fix what the invitee makes, per invite: a note's
+  `subject`, a document's `Title`, and from 1.48.0 its `library` and `folder`.
+  The invitee sees them and can't change them. A route's fixed upload columns
+  win: an invite can't preset what the route fixes.
+- **A link never does more than its sender could.** Lookups and access-deciding
+  columns are never offered or preset, and a closed case (filtered out of its
+  route) takes no notes.
+
 ## Field-level gotchas
 
 **Polymorphic navigation properties are not fields.** `customerid` on a case
@@ -555,6 +598,8 @@ applying a new route, or a change to one, check:
 | 10 | `public_read` / `public_create` only where anonymous use is the point; `public_create` routes with no writable lookups | Data on the open internet; records attached to strangers |
 | 11 | Custom APIs: every definition has `tiers`; `public` only for read-only data anyone may see; a `target` on anything acting on a record on `me` / `team`; every `"unchecked": true` and `callerParameters` justified | Anonymous actions; actions on other people's records |
 | 12 | Self-registration: `domain_field` staff-only and free of shared domains | Strangers joining a company |
+| 13 | `documents`: listed under their own permission with a fixed filter (e.g. `ShowOnPortal eq true`); `upload.columns` fixes what marks a citizen file; every library in `upload.libraries` or a fixed `library` has the declared columns | Staff documents shown to citizens; uploads failing in one library |
+| 14 | Invites: no `invite` grant in a citizen scope unless citizens should send links; `invite_url` https with the token in the fragment | Citizens minting links; tokens in server logs |
 
 After the apply, run the negative test for each new route:
 `contact-admin tables test-query <route> --tier me --contact-id <a GUID matching

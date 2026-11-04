@@ -94,7 +94,7 @@ Load on demand, not upfront. Each is self-contained.
 | Writing a list query — filtering, sorting, paging, expanding | `references/querying.md` |
 | Wiring sign-in, or a token is being rejected | `references/auth.md` |
 | Calling the API from TypeScript — always on the latest SDK, with types from `dataverse-client generate` | `references/sdk.md` |
-| Anything beyond the common routes — envelopes, headers, choices, changes, aggregate | `references/routes.md` |
+| Anything beyond the common routes — envelopes, headers, choices, changes, aggregate, files, SharePoint documents and uploads (library and folder are fields), invite links and their preset values | `references/routes.md` |
 | A call is failing and you need to work out why | `references/troubleshooting.md` |
 | Administering scopes, tables or per-user grants | `references/admin.md` |
 | Judging whether a scope or client is safe — who can see or change what, what the server doesn't check, the tests to run before go-live | `references/security.md` |

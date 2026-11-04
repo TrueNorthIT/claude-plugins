@@ -42,7 +42,7 @@ Load on demand, not upfront:
 
 | When you are doing this | Read |
 |---|---|
-| Writing or editing any resource | `references/provider-reference.md` |
+| Writing or editing any resource, including SharePoint `documents`, uploads and `invites` | `references/provider-reference.md` |
 | Deciding how a route should be scoped or permissioned, and the security pass before every apply | `references/patterns.md` |
 | Explaining, reviewing or handing over a config | `references/explaining.md` |
 
