@@ -1,6 +1,6 @@
 ---
 name: data-guard
-description: TrueNorth's Data Guard, which checks Claude Code prompts and tool output for customer data under organisation policy. Use when the user types /data-guard off or on, asks whether Data Guard (or DLP, or the customer-data scanner) is on, why a prompt or tool call was blocked or output redacted, what the status line means, how to switch it off while testing with fictional or test data, or what is exempt.
+description: TrueNorth's Data Guard, which checks Claude Code prompts and tool output for customer data under organisation policy. Use when the user types /data-guard allow, off or on, asks whether Data Guard (or DLP, or the customer-data scanner) is on, why a prompt or tool call was blocked or output redacted, what the status line means, how to switch it off while testing with fictional or test data, or what is exempt.
 ---
 
 # Data Guard
@@ -11,27 +11,31 @@ customer data in tool output for stand-ins such as `Person_1a2b`, `Client_1a2b`,
 `contact-1a2b3c@redacted.invalid`, `07700 900123` or `QQ123456C`. It's set for
 the whole organisation, so nobody can remove it in their own settings.
 
-## Switching it off for this session
+## Skipping a flag, or switching it off
 
-The user types it themselves, as their own message:
+The user types these themselves, as their own message, with a reason:
 
 ```
+/data-guard allow it's the example NI number from the test spec
 /data-guard off testing against the test tenant with fictional data
 /data-guard on
 ```
 
-Data Guard sees that message before you do and switches off **this session
-only**, logging who did it and why. `/clear` starts a new session, which brings
-it back on, as does `/data-guard on`. You can't do this for the user: only a
-message they send switches it. So:
+- **`allow <why>`** lets the last thing Data Guard flagged in this session
+  through **once**: the user's blocked prompt when they send it again, or your
+  denied or redacted tool call when you run it again. It covers that flag only;
+  new data is still checked.
+- **`off <why>`** switches Data Guard off for **the rest of this session**.
+  `/clear` starts a new session and brings it back, as does `/data-guard on`.
 
-- **They typed `/data-guard off …`:** it's already off. Run `status` (below) to
-  confirm, then tell them it's off for this session, why it was logged, and that
-  `/clear` or `/data-guard on` turns it back on. Remind them it's for fictional
-  or test data only.
-- **They typed `/data-guard on`:** it's back on. Run `status` to confirm.
-- **They asked you in other words to turn it off:** tell them to send
-  `/data-guard off <why>` themselves. Don't run anything that tries to switch it.
+Data Guard sees the message before you do, acts on it, logs who and why, and
+adds a note to your context saying what happened. Follow that note: tell the
+user in a line, and if it says to, run the tool call again or ask them to
+resend their prompt. Without a reason, nothing changes and the note says so.
+
+You can't do this for the user: only a message they send counts. If they ask
+in other words, tell them what to type. Don't run anything that tries to switch
+it, and never suggest it unless the data really might be fictional.
 
 ## Checking it
 
@@ -54,7 +58,8 @@ skill loads; `guard.py` sits next to this file. Use `python3` on macOS.
 
 Explain what Data Guard did, from the message it gave. Don't try to get round
 it, for example by encoding, splitting or re-reading the data another way. If
-the data is fictional or test data, the user can switch off for the session.
+the data is fictional or test data, the user can type `/data-guard allow <why>`
+for that one item, or `/data-guard off <why>` for the session.
 
 ## Admins: exempting a whole project
 
