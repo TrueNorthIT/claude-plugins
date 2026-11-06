@@ -13,6 +13,7 @@ Each plugin is independent — install only the ones you want.
 | [`dataverse-terraform`](./plugins/dataverse-terraform/README.md) | Define a Contact API portal backend as Terraform — export an existing scope into HCL and adopt it into state, scaffold and provision a new one, or read a config back in plain English. | `claude plugin install dataverse-terraform@truenorthit` |
 | [`create-gds-service`](./plugins/create-gds-service) | Scaffold or remove a GOV.UK Design System service in a service-builder-flow repo. | `claude plugin install create-gds-service@truenorthit` |
 | [`bigmac`](./plugins/bigmac) | Offload grunt work (summaries, first-pass exploration, bulk classification) to the office Ollama server. | `claude plugin install bigmac@truenorthit` |
+| [`data-guard`](./plugins/data-guard) | TrueNorth's Data Guard: keeps customer data out of Claude Code requests. Forced on for the organisation, so there's nothing to install; `/data-guard off <why>` switches it off for one session. | Installed by org policy |
 
 ## Install
 

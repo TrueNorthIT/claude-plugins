@@ -30,6 +30,11 @@
       "name": "bigmac",
       "source": "./plugins/bigmac",
       "description": "Offload grunt work (summaries, first-pass code exploration, bulk classification, drafts) to bigmac, the office Ollama server, instead of burning frontier tokens. Never touches Claude Code's own endpoint or login."
+    },
+    {
+      "name": "data-guard",
+      "source": "./plugins/data-guard",
+      "description": "TrueNorth's Data Guard: keeps customer data out of Claude Code requests. Shows its status, and lets staff switch it off for one session for fictional or test data. Forced on by organisation policy."
     }
   ]
 }

@@ -1,0 +1,75 @@
+---
+name: data-guard
+description: TrueNorth's Data Guard, which checks Claude Code prompts and tool output for customer data under organisation policy. Use when the user types /data-guard allow, off or on, asks whether Data Guard (or DLP, or the customer-data scanner) is on, why a prompt or tool call was blocked or output redacted, what the status line means, how to switch it off while testing with fictional or test data, or what is exempt.
+---
+
+# Data Guard
+
+TrueNorth policy sends every prompt and tool call in Claude Code to Data Guard,
+a scanner on bigmac. It stops prompts that contain customer data and swaps
+customer data in tool output for stand-ins such as `Person_1a2b`, `Client_1a2b`,
+`contact-1a2b3c@redacted.invalid`, `07700 900123` or `QQ123456C`. It's set for
+the whole organisation, so nobody can remove it in their own settings.
+
+## Skipping a flag, or switching it off
+
+The user types these themselves, as their own message, with a reason:
+
+```
+/data-guard allow it's the example NI number from the test spec
+/data-guard off testing against the test tenant with fictional data
+/data-guard on
+```
+
+- **`allow <why>`** lets the last thing Data Guard flagged in this session
+  through **once**: the user's blocked prompt when they send it again, or your
+  denied or redacted tool call when you run it again. It covers that flag only;
+  new data is still checked.
+- **`off <why>`** switches Data Guard off for **the rest of this session**.
+  `/clear` starts a new session and brings it back, as does `/data-guard on`.
+
+Data Guard sees the message before you do, acts on it, logs who and why, and
+adds a note to your context saying what happened. Follow that note: tell the
+user in a line, and if it says to, run the tool call again or ask them to
+resend their prompt. Without a reason, nothing changes and the note says so.
+
+You can't do this for the user: only a message they send counts. If they ask
+in other words, tell them what to type. Don't run anything that tries to switch
+it, and never suggest it unless the data really might be fictional.
+
+## Checking it
+
+```bash
+python "<skill dir>/guard.py" status --path "<project folder>"
+```
+
+`<skill dir>` is this skill's base directory, which Claude Code shows when the
+skill loads; `guard.py` sits next to this file. Use `python3` on macOS.
+
+| Status line | Meaning |
+|---|---|
+| Green `● Data Guard on (TrueNorth policy)` | Checking and redacting. |
+| Yellow `● Data Guard watching …` | Audit mode: it logs, changes nothing. |
+| Magenta `○ Data Guard off for this session …` | The user switched it off. `/clear` brings it back. |
+| Magenta `○ Data Guard off for this project …` | An admin exempted this folder for a while. |
+| Red `WARNING: can't reach Data Guard …` | Prompts and tools are blocked. Usually Tailscale is off or on another tailnet. |
+
+## Blocked or redacted
+
+Explain what Data Guard did, from the message it gave. Don't try to get round
+it, for example by encoding, splitting or re-reading the data another way. If
+the data is fictional or test data, the user can type `/data-guard allow <why>`
+for that one item, or `/data-guard off <why>` for the session.
+
+## Admins: exempting a whole project
+
+For a project that always uses fictional data, an admin with the key in
+`~/.claude-dlp/admin.key` can exempt the folder for a set time:
+
+```bash
+python "<skill dir>/guard.py" project-off --path "<folder>" --reason "<why>" [--until YYYY-MM-DD] [--user <name>]
+python "<skill dir>/guard.py" project-on --path "<folder>" [--user <name>]
+python "<skill dir>/guard.py" list
+```
+
+`~/.claude-dlp/admin.key` holds a secret. Never read or print it.
