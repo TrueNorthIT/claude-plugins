@@ -70,17 +70,27 @@ $body = @{
 $r = Invoke-RestMethod -Uri "$base/chat/completions" -Method Post -Body $body `
     -ContentType 'application/json' -Headers @{ Authorization = 'Bearer local' } -TimeoutSec 300
 $r.choices[0].message.content
+"usage: $($r.usage.prompt_tokens) in / $($r.usage.completion_tokens) out"   # keep for the usage line
 ```
 
 ```bash
+# needs curl and jq (jq isn't bundled with Git for Windows; use the PowerShell recipe there)
 BASE="${BIGMAC_URL:-https://bigmac-service.tail08382e.ts.net/v1}"
 body="$(mktemp)"
 jq -n --rawfile c "$path" '{model:"qwen3.8-27b", max_tokens:2000,
   chat_template_kwargs:{enable_thinking:false},
   messages:[{role:"user", content:("Summarise this file:\n"+$c)}]}' > "$body"
-curl -s "$BASE/chat/completions" -H 'Content-Type: application/json' \
-  -H 'Authorization: Bearer local' -d @"$body" | jq -r '.choices[0].message.content'
-rm -f "$body"
+resp="$(mktemp)"
+# Timeouts so a dropped tailnet or stalled model can't hang a batch.
+if curl -sS --fail --connect-timeout 15 --max-time 300 "$BASE/chat/completions" \
+     -H 'Content-Type: application/json' -H 'Authorization: Bearer local' \
+     -d @"$body" -o "$resp"; then
+  jq -r '.choices[0].message.content' "$resp"
+  jq -r '"usage: \(.usage.prompt_tokens) in / \(.usage.completion_tokens) out"' "$resp" >&2
+else
+  echo "bigmac call failed or timed out — do this one on Claude" >&2
+fi
+rm -f "$body" "$resp"
 ```
 
 Any OpenAI SDK works the same way: `OpenAI(base_url=<base>, api_key="local")` and
@@ -119,7 +129,9 @@ When a task used bigmac, end your final summary with one line of accounting, e.g
 > bigmac: 7 calls · qwen3.8-27b · ~21k input / 0.8k output tokens handled locally
 
 Every chat completion response carries `usage.prompt_tokens` (input) and
-`usage.completion_tokens` (output); total them across calls. This shows what was kept
+`usage.completion_tokens` (output) — both recipes above print them after each answer;
+record them per call and total them across calls (they can't be recovered later without
+repeating the requests). This shows what was kept
 off the user's Claude budget.
 
 ## Division of labour (non-negotiable)
