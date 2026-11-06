@@ -29,7 +29,7 @@
     {
       "name": "bigmac",
       "source": "./plugins/bigmac",
-      "description": "Offload grunt work (summaries, first-pass code exploration, bulk classification, drafts) to bigmac, the office Ollama server, instead of burning frontier tokens. Never touches Claude Code's own endpoint or login."
+      "description": "Offload grunt work (summaries, first-pass code exploration, bulk classification, drafts) to bigmac, TrueNorth's local model endpoint over Tailscale, instead of burning frontier tokens. Never touches Claude Code's own endpoint or login."
     },
     {
       "name": "data-guard",
