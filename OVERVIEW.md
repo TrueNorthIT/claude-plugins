@@ -13,7 +13,7 @@ marketplace installs nothing by itself.
 | `dataverse-terraform` | Defines a portal backend — a *scope* — as Terraform: which Dataverse tables publish as routes, which fields each exposes, how rows scope back to the signed-in citizen, and the baseline permissions. Also exports an existing scope into HCL, and explains a config in plain English. |
 | `dataverse-portal` | Turns a single natural-language prompt ("build me a case portal", "scaffold a UI for the booking table in scope pilot") into a working citizen-facing React + TypeScript + Tailwind SPA, signed in with Microsoft Entra External ID via MSAL and wired to the Contact API. Also reviews an existing portal or PR for security and best-practice problems, with the fix for each. |
 | `create-gds-service` | Scaffolds or removes a GOV.UK Design System service in a service-builder-flow repo — folder, pages, GDS-compliant copy, Dataverse row CLI, OpenAPI verification. |
-| `bigmac` | Offloads grunt work (summaries, first-pass code exploration, bulk classification, rough drafts) to the office Ollama server rather than to frontier tokens. |
+| `bigmac` | Offloads grunt work (summaries, first-pass code exploration, bulk classification, rough drafts) to bigmac, TrueNorth's local model endpoint over Tailscale, rather than to frontier tokens. |
 
 The users are developers — in-house, partner, or council — working in Claude
 Code. The problem the Dataverse plugins solve is the cost and inconsistency of
@@ -45,8 +45,8 @@ Contact Portal API pillar.
 - **`plugins/<name>/hooks/`** — `hooks.json` plus `check-updates.mjs`, a
   `SessionStart` hook per plugin that compares the installed version against
   `plugin.json` on `main` and prompts to update. Silent when current.
-- **`plugins/bigmac/.mcp.json`** — the only MCP registration in the repo; the
-  Dataverse plugins deliberately need none.
+- **No MCP registrations.** No plugin ships an `.mcp.json`: the Dataverse plugins
+  deliberately need none, and `bigmac` calls its endpoint over plain HTTP.
 
 There is no runtime service here — it is configuration and instructions executed
 by Claude Code on the developer's machine. External integrations are the
@@ -54,7 +54,7 @@ Dataverse Contact API (discovery, admin and data endpoints), Microsoft Entra
 External ID (portal authentication config, consumed as IDs — the plugins never
 create an app registration), the public Terraform registry
 (`TrueNorthIT/dataversecontact`), npm (the `@truenorth-it/contact-admin` CLI and
-the `@truenorth-it/dataverse-client` SDK), and the office Ollama server for
+the `@truenorth-it/dataverse-client` SDK), and the bigmac local model endpoint (OpenAI-compatible, over Tailscale) for
 `bigmac`.
 
 Distribution is via GitHub: a developer adds the marketplace once, installs the
