@@ -52,7 +52,7 @@ skill loads; `guard.py` sits next to this file. Use `python3` on macOS.
 | Yellow `● Data Guard watching …` | Audit mode: it logs, changes nothing. |
 | Magenta `○ Data Guard off for this session …` | The user switched it off. `/clear` brings it back. |
 | Magenta `○ Data Guard off for this project …` | An admin exempted this folder for a while. |
-| Red `WARNING: can't reach Data Guard …` | Prompts and tools are blocked. Usually Tailscale is off or on another tailnet. |
+| Red `WARNING: can't reach Data Guard …` | Nothing is being checked. Usually Tailscale is off or on another tailnet. |
 
 ## Blocked or redacted
 
