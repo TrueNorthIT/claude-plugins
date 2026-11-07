@@ -1,7 +1,7 @@
 {
   "name": "data-guard",
   "description": "TrueNorth's Data Guard: checks Claude Code prompts and tool output for customer data under organisation policy. /data-guard explains what it did and shows its status; staff type /data-guard off <why> to switch it off for one session while working with fictional or test data. Forced on for the TrueNorth organisation.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": {
     "name": "TrueNorth IT",
     "email": "hello@truenorthit.co.uk"

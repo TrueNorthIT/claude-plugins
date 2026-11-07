@@ -48,8 +48,15 @@ skill loads; `guard.py` sits next to this file. Use `python3` on macOS.
 
 | Status line | Meaning |
 |---|---|
-| Green `● Data Guard on (TrueNorth policy)` | Checking and redacting. |
+| Green `● Data Guard on …` | Checking and redacting. |
 | Yellow `● Data Guard watching …` | Audit mode: it logs, changes nothing. |
+
+Green and yellow lines can carry this session's counts, such as
+`· 128 checks, 40 ms avg · 3 redacted, 1 blocked`. A check is one prompt, tool
+call or tool output; ms avg is the scanner's own time per check; redacted means
+an output got stand-ins, blocked means a prompt wasn't sent, a tool call was
+denied or an output was withheld. In audit mode they read "would have". They're
+counts only, and start again with each session or when the scanner restarts.
 | Magenta `○ Data Guard off for this session …` | The user switched it off. `/clear` brings it back. |
 | Magenta `○ Data Guard off for this project …` | An admin exempted this folder for a while. |
 | Red `WARNING: can't reach Data Guard …` | Nothing is being checked. Usually Tailscale is off or on another tailnet. |
