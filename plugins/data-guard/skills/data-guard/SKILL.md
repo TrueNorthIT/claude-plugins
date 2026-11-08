@@ -11,6 +11,13 @@ customer data in tool output for stand-ins such as `Person_1a2b`, `Client_1a2b`,
 `contact-1a2b3c@redacted.invalid`, `07700 900123` or `QQ123456C`. It's set for
 the whole organisation, so nobody can remove it in their own settings.
 
+It checks data, not code: prompts, shell output, web pages, MCP tools, and
+files such as logs, exports, JSON, CSV and Markdown notes. Source files inside the project
+(read with Read, or searched with Grep) aren't checked, because they go to git
+anyway. Names it only guesses at don't block a prompt. For test data, suggest
+addresses at `example.com` or a `.test` domain, and values it never treats as
+real, such as `QQ123456C` and `07700 900123`.
+
 ## Skipping a flag, or switching it off
 
 The user types these themselves, as their own message, with a reason:
@@ -67,6 +74,10 @@ Explain what Data Guard did, from the message it gave. Don't try to get round
 it, for example by encoding, splitting or re-reading the data another way. If
 the data is fictional or test data, the user can type `/data-guard allow <why>`
 for that one item, or `/data-guard off <why>` for the session.
+
+Stand-ins aren't real values. A file write, command or MCP call that contains
+one is denied, so it can't end up in a file, commit, record or message. If you
+need the real value, ask the user for it.
 
 ## Admins: exempting a whole project
 

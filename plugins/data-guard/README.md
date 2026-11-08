@@ -13,6 +13,22 @@ plugin for everyone.
 | Work with fictional or test data | Type `/data-guard off <why>`. It's off for this session only and logged. `/clear` or `/data-guard on` brings it back. |
 | Fix a red status line | Connect Tailscale to the TrueNorth tailnet. While it's red, Data Guard can't check anything. |
 
+## What it checks
+
+It checks data, not code: your prompts, shell output, web pages, MCP tools,
+and files such as logs, exports, JSON, CSV and Markdown notes. Source files in
+your project aren't checked, because they go to git anyway.
+
+- **Stand-ins stay stand-ins.** Claude can't write `Person_1a2b` and the like
+  into a file, command, commit or record. If it needs the real value, it asks
+  you.
+- **Test data is never flagged.** Use emails at `example.com` or a `.test`
+  domain, phone numbers from `07700 900000` to `07700 900999`, and NI numbers
+  starting `QQ`.
+- **A name on its own isn't enough.** A name the model guesses is swapped only
+  next to something more certain, such as an email, phone number or client
+  name, or in a list of five or more.
+
 ## What the status line says
 
 The line at the bottom of Claude Code refreshes every 15 seconds.
