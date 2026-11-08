@@ -11,6 +11,13 @@ customer data in tool output for stand-ins such as `Person_1a2b`, `Client_1a2b`,
 `contact-1a2b3c@redacted.invalid`, `07700 900123` or `QQ123456C`. It's set for
 the whole organisation, so nobody can remove it in their own settings.
 
+It checks data, not code: prompts, shell output, web pages, MCP tools, and
+files such as logs, exports, JSON, CSV and Markdown notes. Source files inside the project
+(read with Read, or searched with Grep) aren't checked, because they go to git
+anyway. Names it only guesses at don't block a prompt. For test data, suggest
+addresses at `example.com` or a `.test` domain, and values it never treats as
+real, such as `QQ123456C` and `07700 900123`.
+
 ## Skipping a flag, or switching it off
 
 The user types these themselves, as their own message, with a reason:
@@ -50,6 +57,9 @@ skill loads; `guard.py` sits next to this file. Use `python3` on macOS.
 |---|---|
 | Green `● Data Guard on …` | Checking and redacting. |
 | Yellow `● Data Guard watching …` | Audit mode: it logs, changes nothing. |
+| Magenta `○ Data Guard off for this session …` | The user switched it off. `/clear` brings it back. |
+| Magenta `○ Data Guard off for this project …` | An admin exempted this folder for a while. |
+| Red `WARNING: can't reach Data Guard …` | Nothing is being checked. Usually Tailscale is off or on another tailnet. |
 
 Green and yellow lines can carry this session's counts, such as
 `· 128 checks, 40 ms avg · 3 redacted, 1 blocked`. A check is one prompt, tool
@@ -57,9 +67,6 @@ call or tool output; ms avg is the scanner's own time per check; redacted means
 an output got stand-ins, blocked means a prompt wasn't sent, a tool call was
 denied or an output was withheld. In audit mode they read "would have". They're
 counts only, and start again with each session or when the scanner restarts.
-| Magenta `○ Data Guard off for this session …` | The user switched it off. `/clear` brings it back. |
-| Magenta `○ Data Guard off for this project …` | An admin exempted this folder for a while. |
-| Red `WARNING: can't reach Data Guard …` | Nothing is being checked. Usually Tailscale is off or on another tailnet. |
 
 ## Blocked or redacted
 
@@ -67,6 +74,10 @@ Explain what Data Guard did, from the message it gave. Don't try to get round
 it, for example by encoding, splitting or re-reading the data another way. If
 the data is fictional or test data, the user can type `/data-guard allow <why>`
 for that one item, or `/data-guard off <why>` for the session.
+
+Stand-ins aren't real values. A file write, command or MCP call that contains
+one is denied, so it can't end up in a file, commit, record or message. If you
+need the real value, ask the user for it.
 
 ## Admins: exempting a whole project
 
