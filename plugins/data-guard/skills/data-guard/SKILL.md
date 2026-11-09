@@ -18,6 +18,13 @@ anyway. Names it only guesses at don't block a prompt. For test data, suggest
 addresses at `example.com` or a `.test` domain, and values it never treats as
 real, such as `QQ123456C` and `07700 900123`.
 
+Company names count as customer data too. Our clients and their contacts come
+from the PSA and are caught anywhere. In CRM output, every account's name is
+treated as a client's (a client's own customers live there). Any other company
+the name model spots becomes a `Client_1a2b` stand-in when other customer data
+sits next to it, and is only logged on its own or in a prompt. The tools we use,
+such as Microsoft, GitHub and Azure, are left alone.
+
 ## Skipping a flag, or switching it off
 
 The user types these themselves, as their own message, with a reason:
