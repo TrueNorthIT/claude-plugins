@@ -26,6 +26,9 @@ your project aren't checked, because they go to git anyway.
 - **Test data is never flagged.** Use emails at `example.com` or a `.test`
   domain, phone numbers from `07700 900000` to `07700 900999`, NI numbers
   starting `QQ`, and the surname Example for made-up people (`Priya Example`).
+- **Data Claude makes up is fine.** Test records Claude writes to a file come back as written when
+  the file is read later, in a session where Data Guard is on and enforcing. Only a secret on
+  them is still caught; a line anything else adds gets the full check.
 - **A name on its own isn't enough.** A name the model guesses is swapped only
   next to something more certain, such as an email, phone number or client
   name, or in a list of five or more.
