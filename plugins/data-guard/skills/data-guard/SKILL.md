@@ -96,8 +96,9 @@ start again with each session or when the scanner restarts.
 After a flag the line also says what the last one was, for example
 `· last 14:02: Read output would be redacted (email ×2, name)`: when, where (the
 prompt, or which tool's call or output) and what kinds of data, never the values,
-file names or commands. When someone asks why the counts went up, start there:
-the kinds say what to look for in that output.
+file names or commands. You can't see the status line, so when someone asks why
+the counts went up, ask what the end of theirs says: the kinds tell you what to
+look for in that output.
 
 ## Blocked or redacted
 
