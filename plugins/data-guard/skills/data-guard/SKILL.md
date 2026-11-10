@@ -1,6 +1,6 @@
 ---
 name: data-guard
-description: TrueNorth's Data Guard, which checks Claude Code prompts and tool output for customer data under organisation policy. Use when the user types /data-guard allow, off or on, asks whether Data Guard (or DLP, or the customer-data scanner) is on, why a prompt or tool call was blocked or output redacted, what the status line means, how to switch it off while testing with fictional or test data, or what is exempt.
+description: TrueNorth's Data Guard, which checks Claude Code prompts and tool output for customer data under organisation policy. Use when the user types /data-guard allow, off, on or test-data, asks whether Data Guard (or DLP, or the customer-data scanner) is on, why a prompt or tool call was blocked or output redacted, what the status line means, how to switch it off while testing with fictional or test data, or what is exempt.
 ---
 
 # Data Guard
@@ -15,8 +15,10 @@ It checks data, not code: prompts, shell output, web pages, MCP tools, and
 files such as logs, exports, JSON, CSV and Markdown notes. Source files inside the project
 (read with Read, or searched with Grep) aren't checked, because they go to git
 anyway. Names it only guesses at don't block a prompt. For test data, suggest
-addresses at `example.com` or a `.test` domain, and values it never treats as
-real, such as `QQ123456C` and `07700 900123`.
+addresses at `example.com` or a `.test` domain, values it never treats as real,
+such as `QQ123456C` and `07700 900123`, and for made-up people the surname
+Example (`Priya Example`, `Tom Example`): Data Guard leaves anyone called Example
+alone, wherever they turn up.
 
 Company names count as customer data too. Our clients and their contacts come
 from the PSA and are caught anywhere. In CRM output, every account's name is
@@ -33,6 +35,7 @@ The user types these themselves, as their own message, with a reason:
 /data-guard allow it's the example NI number from the test spec
 /data-guard off testing against the test tenant with fictional data
 /data-guard on
+/data-guard test-data tests/fixtures/people.csv made-up people for the import tests
 ```
 
 - **`allow <why>`** lets the last thing Data Guard flagged in this session
@@ -41,6 +44,13 @@ The user types these themselves, as their own message, with a reason:
   new data is still checked.
 - **`off <why>`** switches Data Guard off for **the rest of this session**.
   `/clear` starts a new session and brings it back, as does `/data-guard on`.
+- **`test-data <file> <why>`** vouches for a file of made-up data. Read the
+  whole file straight after (no offset or limit): Data Guard keeps a fingerprint
+  of its content, never the content. From then on names, companies, addresses
+  and client names in exactly that content are left alone, in any session and
+  however it's read. NI and card numbers, secrets, and real email addresses and
+  phone numbers are still checked. Any edit ends the mark; mark it again after.
+  Quote a path with spaces.
 
 Data Guard sees the message before you do, acts on it, logs who and why, and
 adds a note to your context saying what happened. Follow that note: tell the
