@@ -28,6 +28,11 @@ your project aren't checked, because they go to git anyway.
 - **A name on its own isn't enough.** A name the model guesses is swapped only
   next to something more certain, such as an email, phone number or client
   name, or in a list of five or more.
+- **Company names count.** Our clients and their contacts, from the PSA, are
+  caught anywhere, and so is every account name in CRM output. Any other company
+  is swapped for a stand-in such as `Client_1a2b` when other customer data is
+  next to it. The tools we use, such as Microsoft, GitHub and Azure, are left
+  alone.
 
 ## What the status line says
 
