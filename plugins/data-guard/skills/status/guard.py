@@ -17,7 +17,7 @@ only, never a value. The filled file holds real customer data: send or use it
 yourself.
 
 Anyone can run status and fill. Switching Data Guard off for one session isn't done
-here: the engineer types `/data-guard off <reason>` as a prompt, which only a
+here: the engineer types `/data-guard:off <reason>` as a prompt, which only a
 person can do. project-off, project-on and list need the Data Guard admin key
 in ~/.claude-dlp/admin.key, or SCANNER_ADMIN_KEY; the key is never printed.
 
@@ -49,7 +49,7 @@ def admin_key() -> str:
     key = os.environ.get("SCANNER_ADMIN_KEY") or (KEY_FILE.read_text().strip() if KEY_FILE.exists() else "")
     if not key:
         sys.exit("Exempting a whole project needs a Data Guard admin, and this machine has no admin key. "
-                 "To switch it off for this session only, type /data-guard off <reason> as your own message.")
+                 "To switch it off for this session only, type /data-guard:off <reason> as your own message.")
     return key
 
 
@@ -161,7 +161,7 @@ def main() -> None:
     path = os.path.abspath(a.path)
 
     if a.action in ("off", "on"):
-        sys.exit(f"Type /data-guard {a.action} <reason> as your own message. Only a person can switch "
+        sys.exit(f"Type /data-guard:{a.action}{' <reason>' if a.action == 'off' else ''} as your own message. Only a person can switch "
                  "Data Guard off or on for a session, so Claude can't do it for you.")
     if a.action == "fill":
         fill(a.draft, a.sources, a.out)

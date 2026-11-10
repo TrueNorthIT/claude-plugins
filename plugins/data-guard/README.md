@@ -8,19 +8,21 @@ plugin for everyone.
 
 | You want to | Do this |
 |---|---|
-| Know what it's doing | Look at the status line ([below](#what-the-status-line-says)), or ask Claude "what's Data Guard doing?" |
+| Know what it's doing | Look at the status line ([below](#what-the-status-line-says)), type `/data-guard:status`, or ask Claude "what's Data Guard doing?" |
 | Test with made-up data | Ask Claude to generate it with reserved values ([Test data](#test-data)). Nothing to switch off. |
-| Use a file of made-up data someone else wrote | `/data-guard test-data <file> <why>` |
-| Let one false alarm through | `/data-guard allow <why>` |
-| Work with fictional data all session | `/data-guard off <why>`, and `/data-guard on` after |
+| Use a file of made-up data someone else wrote | `/data-guard:test-data <file> <why>` |
+| Let one false alarm through | `/data-guard:allow <why>` |
+| Work with fictional data all session | `/data-guard:off <why>`, and `/data-guard:on` after |
 | Write an email or file with the real values Claude only saw as stand-ins | Claude drafts it as `reply.draft.md`, then `guard.py fill` puts the real values in on your machine ([Draft, then fill](#draft-then-fill)) |
 | Fix a red status line | Connect Tailscale to the TrueNorth tailnet. While it's red, nothing is checked. |
 
 ## Commands
 
 You type these yourself, as a message, with a reason. Claude can't run them for
-you. Claude Code also lists them as `/data-guard:data-guard <command>`; both
-forms work. Every command is logged with your name and reason.
+you. Each is its own command in this plugin, so type the `data-guard:` part too:
+Claude Code doesn't know `/data-guard off`. Type `/data-guard:` and the menu
+lists them with what each one needs. Every command is logged with your name and
+reason. `/data-guard:status` shows the status line and the commands.
 
 ### Let one false alarm through: `allow`
 
@@ -28,7 +30,7 @@ Data Guard blocked your prompt, or redacted an output, and it isn't real
 customer data:
 
 ```
-/data-guard allow it's the example NI number from the HMRC test spec
+/data-guard:allow it's the example NI number from the HMRC test spec
 ```
 
 Then send your prompt again (the up arrow brings it back), or let Claude rerun
@@ -39,11 +41,11 @@ the tool call. Only that one item goes through, once; anything new is checked.
 You're working against the test tenant with fictional data all afternoon:
 
 ```
-/data-guard off testing the import against the test tenant, fictional data only
+/data-guard:off testing the import against the test tenant, fictional data only
 ```
 
 The status line turns magenta for the rest of the session. Turn it back on with
-`/data-guard on`, or start a new session with `/clear`. Anything Claude writes
+`/data-guard:on`, or start a new session with `/clear`. Anything Claude writes
 while it's off isn't trusted later (see [Test data](#test-data)).
 
 ### Vouch for a file of made-up data: `test-data`
@@ -51,7 +53,7 @@ while it's off isn't trusted later (see [Test data](#test-data)).
 A fixture file of fake people keeps getting flagged:
 
 ```
-/data-guard test-data tests/fixtures/people.csv made-up people for the import tests
+/data-guard:test-data tests/fixtures/people.csv made-up people for the import tests
 ```
 
 Claude then reads the whole file, and Data Guard tells it the file is marked and
@@ -62,7 +64,7 @@ phone numbers are still caught. Change the file and the mark ends; mark it again
 after. Quote a path with spaces:
 
 ```
-/data-guard test-data "test data/people.csv" fixtures for the CRM sync tests
+/data-guard:test-data "test data/people.csv" fixtures for the CRM sync tests
 ```
 
 Bigmac keeps a fingerprint of the content, never the content.
@@ -70,12 +72,12 @@ Bigmac keeps a fingerprint of the content, never the content.
 ### Getting it wrong is fine
 
 - **No reason:** nothing changes, and Claude tells you to add one.
-- **A near miss:** `/data-guard alow …` or `/data-guard testdata …` gets
-  "did you mean `/data-guard allow`?" rather than silence.
-- **Customer data in the reason:** `/data-guard allow it's Jane Doe's NI AB123456C`
+- **A typo:** Claude Code answers `/data-guard:alow …` with "Unknown command" and
+  sends nothing. Pick the command from the menu instead.
+- **Customer data in the reason:** `/data-guard:allow it's Jane Doe's NI AB123456C`
   is blocked like any prompt, and the command doesn't run (in audit mode it's
   logged and runs). Say why without the data:
-  `/data-guard allow it's the example NI number from the spec`.
+  `/data-guard:allow it's the example NI number from the spec`.
 - **Only part of the file read:** Claude is told the file isn't marked yet and to
   read it whole.
 
@@ -124,10 +126,10 @@ Made-up data shouldn't be flagged; real data should. From least effort to most:
    check. (In audit mode nothing is recorded yet.) Prefer `QQ` NI numbers anyway:
    a made-up number in a valid format can belong to a real person.
 
-3. **`/data-guard test-data <file> <why>`** for a file Claude didn't write, such
+3. **`/data-guard:test-data <file> <why>`** for a file Claude didn't write, such
    as a fixture from a colleague.
 
-4. **`/data-guard allow` or `off`** when none of those fit.
+4. **`/data-guard:allow` or `off`** when none of those fit.
 
 ## What it checks
 
@@ -156,7 +158,7 @@ The line at the bottom of Claude Code refreshes every 15 seconds.
 |---|---|
 | Green `● Data Guard on · 128 checks, 40 ms avg · 3 redacted, 1 blocked` | Checking everything. |
 | Yellow `● Data Guard watching (audit mode) · … · would have redacted 3, blocked 1` | Trial run: it logs what it would have done and changes nothing. |
-| Magenta `○ Data Guard off for this session: <why> …` | You switched it off. `/clear` or `/data-guard on` brings it back. |
+| Magenta `○ Data Guard off for this session: <why> …` | You switched it off. `/clear` or `/data-guard:on` brings it back. |
 | Magenta `○ Data Guard off for this project …` | An admin exempted this folder for a while. |
 | Red `WARNING: can't reach Data Guard …` | It tried Tailscale and then bigmac's own network, and neither answered. Connect Tailscale to the TrueNorth tailnet. |
 
