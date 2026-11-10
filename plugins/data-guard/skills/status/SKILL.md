@@ -1,6 +1,6 @@
 ---
-name: data-guard
-description: TrueNorth's Data Guard, which checks Claude Code prompts and tool output for customer data under organisation policy. Use when the user types /data-guard (allow, off, on, test-data), asks whether Data Guard (or DLP, or the customer-data scanner) is on, why a prompt or tool call was blocked or output redacted, why the status line's counts went up, what the status line means, how to work with test, fictional or made-up data without it being flagged, how to mark a file as test data, or what is exempt. Also use when the user wants an email, letter, report or file written with real customer data that Data Guard showed you as stand-ins (Person_1a2b and so on), or a write was refused because it contained stand-ins: draft it and fill it with guard.py fill.
+name: status
+description: TrueNorth's Data Guard, which checks Claude Code prompts and tool output for customer data under organisation policy. Use when the user types /data-guard:status, asks whether Data Guard (or DLP, or the customer-data scanner) is on, why a prompt or tool call was blocked or output redacted, why the status line's counts went up, what the status line means, which /data-guard commands there are, how to work with test, fictional or made-up data without it being flagged, how to mark a file as test data, or what is exempt. Also use when the user wants an email, letter, report or file written with real customer data that Data Guard showed you as stand-ins (Person_1a2b and so on), or a write was refused because it contained stand-ins: draft it and fill it with guard.py fill.
 ---
 
 # Data Guard
@@ -20,6 +20,41 @@ the PSA) anywhere, every account name in CRM output, and any other company the
 name model spots next to other customer data. The tools we use, such as
 Microsoft, GitHub and Azure, are left alone.
 
+## When the user types /data-guard:status
+
+Run the status check (see "Checking it") and show its line, then the commands
+table below, briefly. If they asked something with it, answer that instead.
+
+## The commands
+
+The user types these as their own message. Each is a skill in the `data-guard`
+plugin, so Claude Code always shows the `data-guard:` part; `/data-guard off`
+without the colon is an unknown command.
+
+| Command | Example | What happens |
+|---|---|---|
+| `/data-guard:allow <why>` | `/data-guard:allow it's the example NI number from the test spec` | The last thing flagged in this session goes through once: the user sends the prompt again, or you rerun the tool call. Anything new is still checked. |
+| `/data-guard:off <why>` | `/data-guard:off testing against the test tenant with fictional data` | Off for the rest of this session. The status line turns magenta. `/clear` or `/data-guard:on` brings it back. |
+| `/data-guard:on` | `/data-guard:on` | Back on. Anything typed after it is checked as normal. |
+| `/data-guard:test-data <file> <why>` | `/data-guard:test-data tests/fixtures/people.csv made-up people for the import tests` | Read the whole file straight after, with no offset or limit. Data Guard fingerprints its content and says until when (30 days). Names, companies, addresses and client names in exactly that content are then left alone, for anyone and however it's read; NI and card numbers, secrets and real contact details are still caught. Any edit ends the mark. Quote a path with spaces: `/data-guard:test-data "test data/people.csv" fixtures`. |
+| `/data-guard:status` | `/data-guard:status` | This skill: the status line and these commands. |
+
+Data Guard sees the message before you do, acts on it, logs who and why, and adds
+a note to your context saying what happened. Follow that note: tell the user in a
+line, and do what it says (rerun the call, read the file whole, or ask them to
+resend the prompt). It also tells you when nothing changed: no reason given, a
+near miss such as `/data-guard:alow` ("did the user mean allow?"), or a file read
+only in part.
+
+A command is checked like any other prompt. If its text carries customer data,
+it's blocked and the command doesn't run, so the reason should say why without
+the data: "the example NI number from the spec", not the number. Whatever reason
+goes through is logged with the data swapped for stand-ins.
+
+You can't run these for the user: only a message they send counts. If they ask
+in other words, tell them what to type. Don't run anything that tries to switch
+Data Guard off, and only suggest these when the data really might be fictional.
+
 ## Working with test data
 
 When the user wants made-up data that Data Guard won't flag, suggest the lightest
@@ -35,10 +70,10 @@ way that works, in this order:
    in any later session, they come through as written. Only a secret on them is
    still caught; a line anything else adds gets the full check. Real-format NI
    numbers can belong to real people, so still prefer `QQ` numbers.
-3. **`/data-guard test-data <file> <why>`** for a file of made-up data that
+3. **`/data-guard:test-data <file> <why>`** for a file of made-up data that
    someone else wrote, such as a fixture.
-4. **`/data-guard allow <why>`** for one flagged item, once.
-5. **`/data-guard off <why>`** for the rest of the session, only when the whole
+4. **`/data-guard:allow <why>`** for one flagged item, once.
+5. **`/data-guard:off <why>`** for the rest of the session, only when the whole
    session uses fictional data.
 
 ## Writing something that needs the real values
@@ -67,34 +102,6 @@ Don't read the filled file back (it would be redacted again) and don't send it
 through a tool, such as an email or CRM call: the user sends or uses it themselves.
 Copy stand-ins exactly; one you've changed won't fill.
 
-## The commands
-
-The user types these as their own message, with a reason. Claude Code also offers
-them as `/data-guard:data-guard <command>`; both work.
-
-| Command | Example | What happens |
-|---|---|---|
-| `allow <why>` | `/data-guard allow it's the example NI number from the test spec` | The last thing flagged in this session goes through once: the user sends the prompt again, or you rerun the tool call. Anything new is still checked. |
-| `off <why>` | `/data-guard off testing against the test tenant with fictional data` | Off for the rest of this session. The status line turns magenta. `/clear` or `/data-guard on` brings it back. |
-| `on` | `/data-guard on` | Back on. Anything typed after it is checked as normal. |
-| `test-data <file> <why>` | `/data-guard test-data tests/fixtures/people.csv made-up people for the import tests` | Read the whole file straight after, with no offset or limit. Data Guard fingerprints its content and says until when (30 days). Names, companies, addresses and client names in exactly that content are then left alone, for anyone and however it's read; NI and card numbers, secrets and real contact details are still caught. Any edit ends the mark. Quote a path with spaces: `/data-guard test-data "test data/people.csv" fixtures`. |
-
-Data Guard sees the message before you do, acts on it, logs who and why, and adds
-a note to your context saying what happened. Follow that note: tell the user in a
-line, and do what it says (rerun the call, read the file whole, or ask them to
-resend the prompt). It also tells you when nothing changed: no reason given, a
-near miss such as `/data-guard alow` ("did the user mean allow?"), or a file read
-only in part.
-
-A command is checked like any other prompt. If its text carries customer data,
-it's blocked and the command doesn't run, so the reason should say why without
-the data: "the example NI number from the spec", not the number. Whatever reason
-goes through is logged with the data swapped for stand-ins.
-
-You can't run these for the user: only a message they send counts. If they ask
-in other words, tell them what to type. Don't run anything that tries to switch
-Data Guard off, and only suggest these when the data really might be fictional.
-
 ## Checking it
 
 ```bash
@@ -108,7 +115,7 @@ skill loads; `guard.py` sits next to this file. Use `python3` on macOS.
 |---|---|
 | Green `● Data Guard on …` | Checking and redacting. |
 | Yellow `● Data Guard watching …` | Audit mode: it logs what it would do and changes nothing. |
-| Magenta `○ Data Guard off for this session …` | The user switched it off. `/clear` brings it back. |
+| Magenta `○ Data Guard off for this session …` | The user switched it off. `/clear` or `/data-guard:on` brings it back. |
 | Magenta `○ Data Guard off for this project …` | An admin exempted this folder for a while. |
 | Red `WARNING: can't reach Data Guard …` | Nothing is being checked. It tries Tailscale and then bigmac's own network, and neither answered: connect Tailscale to the TrueNorth tailnet. |
 
