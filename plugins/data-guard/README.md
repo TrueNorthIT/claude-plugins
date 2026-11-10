@@ -13,6 +13,7 @@ plugin for everyone.
 | Use a file of made-up data someone else wrote | `/data-guard test-data <file> <why>` |
 | Let one false alarm through | `/data-guard allow <why>` |
 | Work with fictional data all session | `/data-guard off <why>`, and `/data-guard on` after |
+| Write an email or file with the real values Claude only saw as stand-ins | Claude drafts it as `reply.draft.md`, then `guard.py fill` puts the real values in on your machine ([Draft, then fill](#draft-then-fill)) |
 | Fix a red status line | Connect Tailscale to the TrueNorth tailnet. While it's red, nothing is checked. |
 
 ## Commands
@@ -77,6 +78,31 @@ Bigmac keeps a fingerprint of the content, never the content.
   `/data-guard allow it's the example NI number from the spec`.
 - **Only part of the file read:** Claude is told the file isn't marked yet and to
   read it whole.
+
+## Draft, then fill
+
+Claude sees customer data as stand-ins, so anything it writes has stand-ins too. When you need
+the real values in the result, such as a reply to a customer, ask Claude to draft it:
+
+> Draft a reply to the escalation in data/escalation.txt as replies/reply.draft.md.
+
+A file whose name ends in `.draft` before its extension is the one place a stand-in may be
+written. Then ask Claude to fill it from the file the values came from. It runs the skill's
+`guard.py` on your machine:
+
+```
+python guard.py fill replies/reply.draft.md --from data/escalation.txt
+```
+
+```
+Filled 4 stand-in(s) into replies/reply.md. It holds real customer data: send or use it yourself, and don't paste it back to Claude.
+```
+
+Data Guard finds the values in `--from` again, recomputes their stand-ins and swaps back the
+ones that match. It stores nothing, so only values in files you already have can come back. A
+stand-in that isn't in the sources, or that two values share, is left for you to fill by hand,
+and listed. For many records, ask Claude for a script that reads the real file when it runs
+instead, such as a mail merge.
 
 ## Test data
 
