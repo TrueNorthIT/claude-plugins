@@ -1,6 +1,6 @@
 ---
 name: data-guard
-description: TrueNorth's Data Guard, which checks Claude Code prompts and tool output for customer data under organisation policy. Use when the user types /data-guard allow, off, on or test-data, asks whether Data Guard (or DLP, or the customer-data scanner) is on, why a prompt or tool call was blocked or output redacted, what the status line means, how to switch it off while testing with fictional or test data, or what is exempt.
+description: TrueNorth's Data Guard, which checks Claude Code prompts and tool output for customer data under organisation policy. Use when the user types /data-guard (allow, off, on, test-data), asks whether Data Guard (or DLP, or the customer-data scanner) is on, why a prompt or tool call was blocked or output redacted, why the status line's counts went up, what the status line means, how to work with test, fictional or made-up data without it being flagged, how to mark a file as test data, or what is exempt.
 ---
 
 # Data Guard
@@ -12,62 +12,62 @@ customer data in tool output for stand-ins such as `Person_1a2b`, `Client_1a2b`,
 the whole organisation, so nobody can remove it in their own settings.
 
 It checks data, not code: prompts, shell output, web pages, MCP tools, and
-files such as logs, exports, JSON, CSV and Markdown notes. Source files inside the project
-(read with Read, or searched with Grep) aren't checked, because they go to git
-anyway. Names it only guesses at don't block a prompt. For test data, suggest
-addresses at `example.com` or a `.test` domain, values it never treats as real,
-such as `QQ123456C` and `07700 900123`, and for made-up people the surname
-Example (`Priya Example`, `Tom Example`): Data Guard leaves anyone called Example
-alone, wherever they turn up.
+files such as logs, exports, JSON, CSV and Markdown notes. Source files inside
+the project (read with Read, or searched with Grep) aren't checked, because they
+go to git anyway, unless their content is JSON or CSV. Names it only guesses at
+don't block a prompt. Company names count: our clients and their contacts (from
+the PSA) anywhere, every account name in CRM output, and any other company the
+name model spots next to other customer data. The tools we use, such as
+Microsoft, GitHub and Azure, are left alone.
 
-Data you make up yourself is fine too. When you write test records to a file with
-Write or Edit, in a session where Data Guard is enforcing and hasn't been switched
-off or used `allow`, it fingerprints each line (never the text). When those exact
-lines are read back, in any later session, they come through as written: names,
-contact details, even NI numbers you invented. Only a secret on them is still
-caught, and a line anything else adds gets the full check. Real-format NI numbers
-can belong to real people, so prefer `QQ` numbers anyway.
+## Working with test data
 
-Company names count as customer data too. Our clients and their contacts come
-from the PSA and are caught anywhere. In CRM output, every account's name is
-treated as a client's (a client's own customers live there). Any other company
-the name model spots becomes a `Client_1a2b` stand-in when other customer data
-sits next to it, and is only logged on its own or in a prompt. The tools we use,
-such as Microsoft, GitHub and Azure, are left alone.
+When the user wants made-up data that Data Guard won't flag, suggest the lightest
+way that works, in this order:
 
-## Skipping a flag, or switching it off
+1. **Values it never treats as real.** Emails at `example.com` or a `.test`
+   domain, phone numbers `07700 900000` to `07700 900999`, NI numbers starting
+   `QQ`, published test card numbers, and the surname Example for people
+   (`Priya Example`, `Tom Example`). Use these whenever you generate test data.
+2. **Data you write yourself.** In a session where Data Guard is enforcing and
+   hasn't been switched off or used `allow`, each line you write with Write or
+   Edit is fingerprinted (never stored). When exactly those lines are read back,
+   in any later session, they come through as written. Only a secret on them is
+   still caught; a line anything else adds gets the full check. Real-format NI
+   numbers can belong to real people, so still prefer `QQ` numbers.
+3. **`/data-guard test-data <file> <why>`** for a file of made-up data that
+   someone else wrote, such as a fixture.
+4. **`/data-guard allow <why>`** for one flagged item, once.
+5. **`/data-guard off <why>`** for the rest of the session, only when the whole
+   session uses fictional data.
 
-The user types these themselves, as their own message, with a reason:
+## The commands
 
-```
-/data-guard allow it's the example NI number from the test spec
-/data-guard off testing against the test tenant with fictional data
-/data-guard on
-/data-guard test-data tests/fixtures/people.csv made-up people for the import tests
-```
+The user types these as their own message, with a reason. Claude Code also offers
+them as `/data-guard:data-guard <command>`; both work.
 
-- **`allow <why>`** lets the last thing Data Guard flagged in this session
-  through **once**: the user's blocked prompt when they send it again, or your
-  denied or redacted tool call when you run it again. It covers that flag only;
-  new data is still checked.
-- **`off <why>`** switches Data Guard off for **the rest of this session**.
-  `/clear` starts a new session and brings it back, as does `/data-guard on`.
-- **`test-data <file> <why>`** vouches for a file of made-up data. Read the
-  whole file straight after (no offset or limit): Data Guard keeps a fingerprint
-  of its content, never the content. From then on names, companies, addresses
-  and client names in exactly that content are left alone, in any session and
-  however it's read. NI and card numbers, secrets, and real email addresses and
-  phone numbers are still checked. Any edit ends the mark; mark it again after.
-  Quote a path with spaces.
+| Command | Example | What happens |
+|---|---|---|
+| `allow <why>` | `/data-guard allow it's the example NI number from the test spec` | The last thing flagged in this session goes through once: the user sends the prompt again, or you rerun the tool call. Anything new is still checked. |
+| `off <why>` | `/data-guard off testing against the test tenant with fictional data` | Off for the rest of this session. The status line turns magenta. `/clear` or `/data-guard on` brings it back. |
+| `on` | `/data-guard on` | Back on. Anything typed after it is checked as normal. |
+| `test-data <file> <why>` | `/data-guard test-data tests/fixtures/people.csv made-up people for the import tests` | Read the whole file straight after, with no offset or limit. Data Guard fingerprints its content and says until when (30 days). Names, companies, addresses and client names in exactly that content are then left alone, for anyone and however it's read; NI and card numbers, secrets and real contact details are still caught. Any edit ends the mark. Quote a path with spaces: `/data-guard test-data "test data/people.csv" fixtures`. |
 
-Data Guard sees the message before you do, acts on it, logs who and why, and
-adds a note to your context saying what happened. Follow that note: tell the
-user in a line, and if it says to, run the tool call again or ask them to
-resend their prompt. Without a reason, nothing changes and the note says so.
+Data Guard sees the message before you do, acts on it, logs who and why, and adds
+a note to your context saying what happened. Follow that note: tell the user in a
+line, and do what it says (rerun the call, read the file whole, or ask them to
+resend the prompt). It also tells you when nothing changed: no reason given, a
+near miss such as `/data-guard alow` ("did the user mean allow?"), or a file read
+only in part.
 
-You can't do this for the user: only a message they send counts. If they ask
+A command is checked like any other prompt. If its text carries customer data,
+it's blocked and the command doesn't run, so the reason should say why without
+the data: "the example NI number from the spec", not the number. Whatever reason
+goes through is logged with the data swapped for stand-ins.
+
+You can't run these for the user: only a message they send counts. If they ask
 in other words, tell them what to type. Don't run anything that tries to switch
-it, and never suggest it unless the data really might be fictional.
+Data Guard off, and only suggest these when the data really might be fictional.
 
 ## Checking it
 
@@ -81,30 +81,31 @@ skill loads; `guard.py` sits next to this file. Use `python3` on macOS.
 | Status line | Meaning |
 |---|---|
 | Green `● Data Guard on …` | Checking and redacting. |
-| Yellow `● Data Guard watching …` | Audit mode: it logs, changes nothing. |
+| Yellow `● Data Guard watching …` | Audit mode: it logs what it would do and changes nothing. |
 | Magenta `○ Data Guard off for this session …` | The user switched it off. `/clear` brings it back. |
 | Magenta `○ Data Guard off for this project …` | An admin exempted this folder for a while. |
-| Red `WARNING: can't reach Data Guard …` | Nothing is being checked. Usually Tailscale is off or on another tailnet. |
+| Red `WARNING: can't reach Data Guard …` | Nothing is being checked. It tries Tailscale and then bigmac's own network, and neither answered: connect Tailscale to the TrueNorth tailnet. |
 
-Green and yellow lines can carry this session's counts, such as
+Green and yellow lines carry this session's counts, such as
 `· 128 checks, 40 ms avg · 3 redacted, 1 blocked`. A check is one prompt, tool
 call or tool output; ms avg is the scanner's own time per check; redacted means
-an output got stand-ins, blocked means a prompt wasn't sent, a tool call was
-denied or an output was withheld. In audit mode they read "would have". They're
-counts only, and start again with each session or when the scanner restarts.
+an output got stand-ins; blocked means a prompt wasn't sent, a tool call was
+denied or an output was withheld. In audit mode they read "would have". They
+start again with each session or when the scanner restarts.
 
 After a flag the line also says what the last one was, for example
-`· last 14:02: Read output would be redacted (email ×2, name)`: when, where (your
+`· last 14:02: Read output would be redacted (email ×2, name)`: when, where (the
 prompt, or which tool's call or output) and what kinds of data, never the values,
-file names or commands. If someone asks why the counts went up, start there; the
-kinds say what to look for in that output.
+file names or commands. You can't see the status line, so when someone asks why
+the counts went up, ask what the end of theirs says: the kinds tell you what to
+look for in that output.
 
 ## Blocked or redacted
 
 Explain what Data Guard did, from the message it gave. Don't try to get round
 it, for example by encoding, splitting or re-reading the data another way. If
-the data is fictional or test data, the user can type `/data-guard allow <why>`
-for that one item, or `/data-guard off <why>` for the session.
+the data is fictional or test data, offer the options under "Working with test
+data", lightest first.
 
 Stand-ins aren't real values. A file write, command or MCP call that contains
 one is denied, so it can't end up in a file, commit, record or message. If you
