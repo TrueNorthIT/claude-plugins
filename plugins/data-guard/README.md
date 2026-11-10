@@ -10,6 +10,7 @@ plugin for everyone.
 |---|---|
 | Know what it's doing | Look at the status line (below), or ask Claude "what's Data Guard doing?" |
 | Let one false alarm through | Type `/data-guard allow <why>`, then send your prompt again or let Claude rerun the tool. It covers that one item, and your reason is logged. |
+| Use a file of made-up data | Type `/data-guard test-data <file> <why>`, then let Claude read the whole file. Names, companies and addresses in that exact content are left alone from then on; any edit ends it. Logged. |
 | Work with fictional or test data | Type `/data-guard off <why>`. It's off for this session only and logged. `/clear` or `/data-guard on` brings it back. |
 | Fix a red status line | Connect Tailscale to the TrueNorth tailnet. While it's red, Data Guard can't check anything. |
 
@@ -23,8 +24,8 @@ your project aren't checked, because they go to git anyway.
   into a file, command, commit or record. If it needs the real value, it asks
   you.
 - **Test data is never flagged.** Use emails at `example.com` or a `.test`
-  domain, phone numbers from `07700 900000` to `07700 900999`, and NI numbers
-  starting `QQ`.
+  domain, phone numbers from `07700 900000` to `07700 900999`, NI numbers
+  starting `QQ`, and the surname Example for made-up people (`Priya Example`).
 - **A name on its own isn't enough.** A name the model guesses is swapped only
   next to something more certain, such as an email, phone number or client
   name, or in a list of five or more.
