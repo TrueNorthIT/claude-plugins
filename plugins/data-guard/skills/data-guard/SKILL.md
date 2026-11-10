@@ -93,6 +93,12 @@ an output got stand-ins, blocked means a prompt wasn't sent, a tool call was
 denied or an output was withheld. In audit mode they read "would have". They're
 counts only, and start again with each session or when the scanner restarts.
 
+After a flag the line also says what the last one was, for example
+`· last 14:02: Read output would be redacted (email ×2, name)`: when, where (your
+prompt, or which tool's call or output) and what kinds of data, never the values,
+file names or commands. If someone asks why the counts went up, start there; the
+kinds say what to look for in that output.
+
 ## Blocked or redacted
 
 Explain what Data Guard did, from the message it gave. Don't try to get round
