@@ -20,6 +20,14 @@ such as `QQ123456C` and `07700 900123`, and for made-up people the surname
 Example (`Priya Example`, `Tom Example`): Data Guard leaves anyone called Example
 alone, wherever they turn up.
 
+Data you make up yourself is fine too. When you write test records to a file with
+Write or Edit, in a session where Data Guard is enforcing and hasn't been switched
+off or used `allow`, it fingerprints each line (never the text). When those exact
+lines are read back, in any later session, they come through as written: names,
+contact details, even NI numbers you invented. Only a secret on them is still
+caught, and a line anything else adds gets the full check. Real-format NI numbers
+can belong to real people, so prefer `QQ` numbers anyway.
+
 Company names count as customer data too. Our clients and their contacts come
 from the PSA and are caught anywhere. In CRM output, every account's name is
 treated as a client's (a client's own customers live there). Any other company
@@ -84,6 +92,12 @@ call or tool output; ms avg is the scanner's own time per check; redacted means
 an output got stand-ins, blocked means a prompt wasn't sent, a tool call was
 denied or an output was withheld. In audit mode they read "would have". They're
 counts only, and start again with each session or when the scanner restarts.
+
+After a flag the line also says what the last one was, for example
+`· last 14:02: Read output would be redacted (email ×2, name)`: when, where (your
+prompt, or which tool's call or output) and what kinds of data, never the values,
+file names or commands. If someone asks why the counts went up, start there; the
+kinds say what to look for in that output.
 
 ## Blocked or redacted
 
