@@ -1,6 +1,6 @@
 ---
 name: data-guard
-description: TrueNorth's Data Guard, which checks Claude Code prompts and tool output for customer data under organisation policy. Use when the user types /data-guard (allow, off, on, test-data), asks whether Data Guard (or DLP, or the customer-data scanner) is on, why a prompt or tool call was blocked or output redacted, why the status line's counts went up, what the status line means, how to work with test, fictional or made-up data without it being flagged, how to mark a file as test data, or what is exempt.
+description: TrueNorth's Data Guard, which checks Claude Code prompts and tool output for customer data under organisation policy. Use when the user types /data-guard (allow, off, on, test-data), asks whether Data Guard (or DLP, or the customer-data scanner) is on, why a prompt or tool call was blocked or output redacted, why the status line's counts went up, what the status line means, how to work with test, fictional or made-up data without it being flagged, how to mark a file as test data, or what is exempt. Also use when the user wants an email, letter, report or file written with real customer data that Data Guard showed you as stand-ins (Person_1a2b and so on), or a write was refused because it contained stand-ins: draft it and fill it with guard.py fill.
 ---
 
 # Data Guard
@@ -40,6 +40,32 @@ way that works, in this order:
 4. **`/data-guard allow <why>`** for one flagged item, once.
 5. **`/data-guard off <why>`** for the rest of the session, only when the whole
    session uses fictional data.
+
+## Writing something that needs the real values
+
+When the user wants an email, letter, report or file that has to contain customer
+data you only saw as stand-ins, don't ask them to switch Data Guard off. Either:
+
+1. **Write code that reads the real data when it runs**, such as a mail merge from
+   `contacts.csv`. Best for many records: you only ever see field names.
+2. **Draft, then fill.** Write the text with the stand-ins exactly as you saw them
+   (`Dear Person_1a2b, …`) to a file whose name ends in `.draft` before its
+   extension, such as `reply.draft.md` or `email.draft.eml`. Stand-ins are refused
+   in any other file. Then fill it on the user's machine:
+
+   ```bash
+   python "<skill dir>/guard.py" fill reply.draft.md --from data/contacts.csv
+   ```
+
+   `--from` is the file the real values came from (repeat it for several). Data
+   Guard finds the values there again, swaps back the stand-ins that match, and
+   writes `reply.md` next to the draft. It stores nothing, and only values in those
+   files can come back. Tell the user what it printed: how many it filled, and any
+   stand-ins it left (not in the sources, or shared by two values, to fill by hand).
+
+Don't read the filled file back (it would be redacted again) and don't send it
+through a tool, such as an email or CRM call: the user sends or uses it themselves.
+Copy stand-ins exactly; one you've changed won't fill.
 
 ## The commands
 
