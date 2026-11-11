@@ -38,6 +38,7 @@ without the colon is an unknown command.
 | `/data-guard:on` | `/data-guard:on` | Back on. Anything typed after it is checked as normal. |
 | `/data-guard:test-data <file> <why>` | `/data-guard:test-data tests/fixtures/people.csv made-up people for the import tests` | Read the whole file straight after, with no offset or limit. Data Guard fingerprints its content and says until when (30 days). Names, companies, addresses and client names in exactly that content are then left alone, for anyone and however it's read; NI and card numbers, secrets and real contact details are still caught. Any edit ends the mark. Quote a path with spaces: `/data-guard:test-data "test data/people.csv" fixtures`. |
 | `/data-guard:status` | `/data-guard:status` | This skill: the status line and these commands. |
+| `/data-guard:report <what was wrong>` | `/data-guard:report it took our server's name for a company` | Files the last thing flagged in this session as a GitHub issue for the people who look after Data Guard, with the user's description. bigmac builds the issue and shows the words it caught only where its own model judged them not to be customer data. Data Guard's note says what to run. |
 | `/data-guard:stats [days]` | `/data-guard:stats 30` | How fast Data Guard has been for them: the hook's time on their computer, their checks on bigmac by kind, tool and day, and the slowest. |
 
 Data Guard sees the message before you do, acts on it, logs who and why, and adds

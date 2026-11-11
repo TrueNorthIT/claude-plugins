@@ -12,6 +12,7 @@ plugin for everyone.
 | Test with made-up data | Ask Claude to generate it with reserved values ([Test data](#test-data)). Nothing to switch off. |
 | Use a file of made-up data someone else wrote | `/data-guard:test-data <file> <why>` |
 | Let one false alarm through | `/data-guard:allow <why>` |
+| Tell us Data Guard got something wrong | `/data-guard:report <what was wrong>` ([Report a mistake](#report-a-mistake-report)) |
 | Work with fictional data all session | `/data-guard:off <why>`, and `/data-guard:on` after |
 | Write an email or file with the real values Claude only saw as stand-ins | Claude drafts it as `reply.draft.md`, then `guard.py fill` puts the real values in on your machine ([Draft, then fill](#draft-then-fill)) |
 | See whether Data Guard is slowing you down | `/data-guard:stats` (or `/data-guard:stats 30` for 30 days) ([How fast it is](#how-fast-it-is)) |
@@ -69,6 +70,23 @@ after. Quote a path with spaces:
 ```
 
 Bigmac keeps a fingerprint of the content, never the content.
+
+### Report a mistake: `report`
+
+Data Guard flagged something it shouldn't have, or missed something:
+
+```
+/data-guard:report it took our build server's name for a company
+```
+
+Claude files it as an issue in Data Guard's GitHub repo with your `gh`, and gives
+you the link. The issue says what was flagged, where and when, and what you said.
+Before anything leaves bigmac, bigmac's own model checks it: a word Data Guard
+caught is shown only if the model is sure it isn't personal or customer data, and
+your description is held back if it might name someone. Emails, numbers, client
+names and the like are never shown. Without `gh`, or access to the repo, the
+report is saved to a file for you to send on. Keep customer details out of the
+description anyway.
 
 ### Getting it wrong is fine
 
