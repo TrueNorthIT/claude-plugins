@@ -14,6 +14,7 @@ plugin for everyone.
 | Let one false alarm through | `/data-guard:allow <why>` |
 | Work with fictional data all session | `/data-guard:off <why>`, and `/data-guard:on` after |
 | Write an email or file with the real values Claude only saw as stand-ins | Claude drafts it as `reply.draft.md`, then `guard.py fill` puts the real values in on your machine ([Draft, then fill](#draft-then-fill)) |
+| See whether Data Guard is slowing you down | `/data-guard:stats` (or `/data-guard:stats 30` for 30 days) ([How fast it is](#how-fast-it-is)) |
 | Fix a red status line | Connect Tailscale to the TrueNorth tailnet. While it's red, nothing is checked. |
 
 ## Commands
@@ -149,6 +150,24 @@ them is JSON or CSV (an export saved as `src/x.py` is still an export).
   is swapped for a stand-in such as `Client_1a2b` when other customer data is
   next to it. The tools we use, such as Microsoft, GitHub and Azure, are left
   alone.
+
+## How fast it is
+
+`/data-guard:stats` shows how long Data Guard has taken for you, the last 7 days
+unless you give a number (up to 30):
+
+- **On this computer:** what each hook costs before bigmac does anything:
+  starting a shell and curl, and the trip over Tailscale. It times five tries.
+  About 300 ms is normal on Windows and under 100 ms on a Mac. Tool calls that are
+  checked before and after pay it twice.
+- **On bigmac:** its own time per check, for your prompts, tool calls and tool
+  output, with the median, the slowest 1 in 10, the slowest, and how many took
+  over a second or timed out. Then by tool and by day, next to everyone's.
+- **In all:** how long Claude Code sat waiting on Data Guard while you worked, and
+  the slowest few checks, with how big the output was.
+
+It's timings, counts and tool names only, never what was in a prompt or an
+output. If your numbers look wrong, send them to whoever looks after Data Guard.
 
 ## What the status line says
 

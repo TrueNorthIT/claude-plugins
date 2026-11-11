@@ -34,7 +34,7 @@
     {
       "name": "data-guard",
       "source": "./plugins/data-guard",
-      "description": "TrueNorth's Data Guard: keeps customer data out of Claude Code requests. Shows its status (/data-guard:status), and lets staff let one false alarm through, vouch for a file of test data, or switch it off for one session (/data-guard:allow, :test-data, :off). Forced on by organisation policy."
+      "description": "TrueNorth's Data Guard: keeps customer data out of Claude Code requests. Shows its status (/data-guard:status) and how fast it has been for you (/data-guard:stats), and lets staff let one false alarm through, vouch for a file of test data, or switch it off for one session (/data-guard:allow, :test-data, :off). Forced on by organisation policy."
     }
   ]
 }

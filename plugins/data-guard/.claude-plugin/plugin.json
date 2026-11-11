@@ -1,7 +1,7 @@
 {
   "name": "data-guard",
-  "description": "TrueNorth's Data Guard: checks Claude Code prompts and tool output for customer data under organisation policy. /data-guard:status explains what it did and shows its status. Staff type /data-guard:allow <why> to let one false alarm through, /data-guard:test-data <file> <why> to vouch for a file of made-up data, or /data-guard:off <why> to switch it off for one session. Forced on for the TrueNorth organisation.",
-  "version": "0.2.0",
+  "description": "TrueNorth's Data Guard: checks Claude Code prompts and tool output for customer data under organisation policy. /data-guard:status explains what it did and shows its status; /data-guard:stats shows how fast it has been for you. Staff type /data-guard:allow <why> to let one false alarm through, /data-guard:test-data <file> <why> to vouch for a file of made-up data, or /data-guard:off <why> to switch it off for one session. Forced on for the TrueNorth organisation.",
+  "version": "0.3.0",
   "author": {
     "name": "TrueNorth IT",
     "email": "hello@truenorthit.co.uk"

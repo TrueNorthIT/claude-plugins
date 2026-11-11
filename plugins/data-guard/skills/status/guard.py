@@ -2,6 +2,7 @@
 """Data Guard: check it, or (admins) exempt a project folder.
 
   guard.py status [--path DIR]
+  guard.py stats [--days 7]
   guard.py fill reply.draft.md --from contacts.csv [--from more.json] [--out reply.md]
   guard.py project-off --reason "generating synthetic test data" [--until 2026-12-31] [--path DIR] [--user NAME]
   guard.py project-on [--path DIR] [--user NAME]
@@ -16,7 +17,11 @@ using Claude Code's copy of the managed settings, and prints stand-ins and count
 only, never a value. The filled file holds real customer data: send or use it
 yourself.
 
-Anyone can run status and fill. Switching Data Guard off for one session isn't done
+stats says how fast Data Guard has been for you: it times the hook on this computer
+(five tries through the organisation's hook command), then asks the scanner for your
+checks in the audit log. Timings, counts and tool names only.
+
+Anyone can run status, stats and fill. Switching Data Guard off for one session isn't done
 here: the engineer types `/data-guard:off <reason>` as a prompt, which only a
 person can do. project-off, project-on and list need the Data Guard admin key
 in ~/.claude-dlp/admin.key, or SCANNER_ADMIN_KEY; the key is never printed.
@@ -34,9 +39,11 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import Tuple
 
 URL = os.environ.get("SCANNER_URL", "https://claude-dlp.tail08382e.ts.net").rstrip("/")
 KEY_FILE = Path.home() / ".claude-dlp" / "admin.key"
@@ -90,25 +97,147 @@ def hook_command(settings: Path) -> str:
     sys.exit("The organisation's settings have no Data Guard hook, so there's nothing to fill with.")
 
 
-def post_fill(body: dict) -> dict:
-    """POST /fill. With SCANNER_KEY set (testing), straight to SCANNER_URL; otherwise through the
-    organisation's own hook command with /hook swapped for /fill, so it takes the same route."""
+def via_hook(path: str, body: dict, what: str) -> Tuple[bytes, float]:
+    """POST body to path the way the organisation's hooks go: their own hook command, with
+    /hook swapped for path, so it takes the same route with the same key. With SCANNER_KEY set
+    (testing), straight to SCANNER_URL instead. (What came back, seconds it took.)"""
+    started = time.perf_counter()
     if os.environ.get("SCANNER_KEY"):
-        raw = request("POST", "/fill", body, {"x-scanner-key": os.environ["SCANNER_KEY"],
-                                              "x-user": os.environ.get("USER", "") + os.environ.get("USERNAME", "")})
+        raw = request("POST", path, body, {"x-scanner-key": os.environ["SCANNER_KEY"],
+                                           "x-user": os.environ.get("USER", "") + os.environ.get("USERNAME", "")})
     else:
         bash = shutil.which("bash")
         if not bash:
-            sys.exit("fill needs bash (Git Bash on Windows), as Claude Code's hooks do.")
-        command = hook_command(settings_file()).replace("/hook", "/fill")
+            sys.exit(f"{what} needs bash (Git Bash on Windows), as Claude Code's hooks do.")
+        command = hook_command(settings_file()).replace("/hook", path)
         r = subprocess.run([bash, "-c", command], input=json.dumps(body).encode("utf-8"),
                            capture_output=True, timeout=120)
         raw = r.stdout
+    return raw, time.perf_counter() - started
+
+
+def post_fill(body: dict) -> dict:
+    raw, _ = via_hook("/fill", body, "fill")
     try:
         return json.loads(raw)
     except ValueError:
         sys.exit("Data Guard didn't answer, so nothing was filled. Check the status line isn't red, "
                  "then try again.")
+
+
+# ------------------------------------------------------------------ stats
+TRIES = 5
+EVENT_NAMES = {"UserPromptSubmit": "Your prompts", "PreToolUse": "Tool calls, before",
+               "PostToolUse": "Tool output, after"}
+
+
+def took(ms) -> str:
+    ms = ms or 0
+    if ms < 1000:
+        return f"{ms:.0f} ms"
+    return f"{ms / 1000:.1f} s" if ms < 60_000 else f"{ms / 60_000:.1f} min"
+
+
+def span(seconds: float) -> str:
+    s = int(round(seconds))
+    if s < 60:
+        return f"{s} s"
+    return f"{s // 60} min {s % 60:02d} s" if s < 3600 else f"{s // 3600} h {s % 3600 // 60:02d} min"
+
+
+def when(iso: str) -> str:
+    """Sun 9 Nov 12:18, in this computer's time."""
+    t = datetime.datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone()
+    return f"{t:%a} {t.day} {t:%b %H:%M}"
+
+
+def tool_name(tool) -> str:
+    """mcp__claude-in-chrome__navigate -> claude-in-chrome navigate."""
+    tool = str(tool or "a tool")
+    return " ".join(tool.split("__")[1:]) if tool.startswith("mcp__") else tool
+
+
+def stats_text(rep: dict, hook_ms: float, direct: bool) -> str:
+    row = "  {:<24}{:>8}{:>10}{:>10}{:>10}{:>10}{:>11}"
+    head = row.format("", "checks", "median", "90%", "slowest", "over 1 s", "timed out")
+    lines = [f"Data Guard speed for {rep['user']}, last {rep['days']} day{'s' if rep['days'] != 1 else ''}", "",
+             "On this computer"]
+    how = "straight to the scanner (SCANNER_KEY is set)" if direct else "through the organisation's hook command"
+    lines.append(f"  Each hook takes {took(hook_ms)} to start, reach bigmac and come back "
+                 f"(the middle of {TRIES} tries, {how}).")
+    lines.append(f"  Bash, Read, MCP and other calls checked before and after wait about {took(2 * hook_ms)} "
+                 "for that alone.")
+    lines += ["", "On bigmac, its own time per check", head]
+    for event, name in EVENT_NAMES.items():
+        e = rep["events"][event]
+        lines.append(row.format(name, f"{e['checks']:,}", took(e["median_ms"]), took(e["p90_ms"]),
+                                took(e["slowest_ms"]), f"{e['over_1s']:,}", f"{e['timed_out']:,}"))
+    every = rep["everyone"]["PostToolUse"]
+    lines.append(row.format("Everyone's tool output", f"{every['checks']:,}", took(every["median_ms"]),
+                            took(every["p90_ms"]), "", "", ""))
+    if rep["tools"]:
+        wide = "  {:<40}{:>8}{:>10}{:>10}{:>10}{:>10}{:>13}"  # MCP tools have long names
+        lines += ["", "Tool output by tool, most time first",
+                  wide.format("", "checks", "median", "90%", "slowest", "over 1 s", "in all")]
+        for t in rep["tools"]:
+            lines.append(wide.format(tool_name(t["tool"])[:39], f"{t['checks']:,}", took(t["median_ms"]),
+                                     took(t["p90_ms"]), took(t["slowest_ms"]), f"{t['over_1s']:,}",
+                                     span(t["total_s"])))
+    if rep["by_day"]:
+        lines += ["", "Tool output by day", row.format("", "checks", "median", "90%", "slowest", "over 1 s", "")]
+        for d in rep["by_day"]:
+            t = datetime.date.fromisoformat(d["day"])
+            day = f"{t:%a} {t.day} {t:%b}"
+            lines.append(row.format(day, f"{d['checks']:,}", took(d["median_ms"]), took(d["p90_ms"]),
+                                    took(d["slowest_ms"]), f"{d['over_1s']:,}", "").rstrip())
+    w = rep["waited"]
+    lines += ["", "In all"]
+    if w["active_minutes"]:
+        lines.append(f"  Claude Code waited about {span(w['seconds'])} on Data Guard over "
+                     f"{span(w['active_minutes'] * 60)} of use: {span(w['per_hour_seconds'])} an hour, "
+                     f"and {w['long_waits']:,} waits of 5 s or more.")
+        lines.append(f"  That counts {took(rep['overhead_ms'])} on this computer for every check, and "
+                     "waits at the same time once.")
+    else:
+        lines.append("  No checks in that time.")
+    if rep["slowest"]:
+        lines += ["", "Slowest checks"]
+        for s in rep["slowest"]:
+            where = {"UserPromptSubmit": "prompt", "PreToolUse": f"{tool_name(s['tool'])} call"}.get(
+                s["event"], f"{tool_name(s['tool'])} output")
+            notes = []
+            if str(s.get("action") or "").endswith("timeout"):
+                notes.append("timed out")
+            if s.get("chars"):
+                notes.append(f"{s['chars']:,} characters")
+            if s.get("model_chunks"):
+                notes.append(f"{s['model_chunks']} chunk{'s' if s['model_chunks'] != 1 else ''} for the name model")
+            lines.append(f"  {when(s['ts']):<17}{where[:30]:<31}{took(s['ms']):>9}"
+                         + (f"  ({', '.join(notes)})" if notes else ""))
+    return "\n".join(lines)
+
+
+def stats(days: int) -> None:
+    direct = bool(os.environ.get("SCANNER_KEY"))
+    times = []
+    for _ in range(TRIES):
+        raw, seconds = via_hook("/stats", {"ping": True}, "stats")
+        try:
+            if json.loads(raw).get("ok") is not True:
+                raise ValueError
+        except (ValueError, AttributeError):
+            sys.exit("Data Guard didn't answer. Check the status line isn't red, then try again. If it's "
+                     "green, the scanner may not have /stats yet.")
+        times.append(seconds * 1000)
+    hook_ms = sorted(times)[len(times) // 2]
+    raw, _ = via_hook("/stats", {"days": days, "overhead_ms": round(hook_ms)}, "stats")
+    try:
+        rep = json.loads(raw)
+    except ValueError:
+        sys.exit("Data Guard answered the timing tries but not the stats. Try again in a minute.")
+    if "error" in rep or "events" not in rep:
+        sys.exit(f"Data Guard couldn't give the stats: {rep.get('error', 'no reason given')}")
+    print(stats_text(rep, hook_ms, direct))
 
 
 def filled_name(draft: Path) -> Path:
@@ -148,7 +277,8 @@ def fill(draft_path: str, sources: list, out: str) -> None:
 
 def main() -> None:
     p = argparse.ArgumentParser(description="Check Data Guard, fill a draft, or turn it off or on for a project.")
-    p.add_argument("action", choices=["status", "fill", "off", "on", "project-off", "project-on", "list"])
+    p.add_argument("action", choices=["status", "stats", "fill", "off", "on", "project-off", "project-on", "list"])
+    p.add_argument("--days", type=int, default=7, help="stats: how many days back to look, 1 to 30 (default 7)")
     p.add_argument("draft", nargs="?", help="fill: the draft with stand-ins, e.g. reply.draft.md")
     p.add_argument("--from", dest="sources", action="append", default=[],
                    help="fill: a file holding the real values (repeat for several)")
@@ -165,6 +295,10 @@ def main() -> None:
                  "Data Guard off or on for a session, so Claude can't do it for you.")
     if a.action == "fill":
         fill(a.draft, a.sources, a.out)
+    elif a.action == "stats":
+        if not 1 <= a.days <= 30:
+            sys.exit("--days must be 1 to 30.")
+        stats(a.days)
     elif a.action == "status":
         session = os.environ.get("CLAUDE_CODE_SESSION_ID")
         line = request("POST", "/statusline", {"cwd": path, "session_id": session}, {"x-user": a.user})
