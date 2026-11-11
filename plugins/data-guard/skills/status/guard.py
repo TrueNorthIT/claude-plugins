@@ -195,7 +195,7 @@ def stats_text(rep: dict, hook_ms: float, direct: bool) -> str:
     if w["active_minutes"]:
         lines.append(f"  Claude Code waited about {span(w['seconds'])} on Data Guard over "
                      f"{span(w['active_minutes'] * 60)} of use: {span(w['per_hour_seconds'])} an hour, "
-                     f"and {w['long_waits']:,} waits of 5 s or more.")
+                     f"and {w['long_waits']:,} wait{'' if w['long_waits'] == 1 else 's'} of 5 s or more.")
         lines.append(f"  That counts {took(rep['overhead_ms'])} on this computer for every check, and "
                      "waits at the same time once.")
     else:
