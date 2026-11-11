@@ -4,6 +4,7 @@
   guard.py status [--path DIR]
   guard.py stats [--days 7]
   guard.py fill reply.draft.md --from contacts.csv [--from more.json] [--out reply.md]
+  guard.py report <token>
   guard.py project-off --reason "generating synthetic test data" [--until 2026-12-31] [--path DIR] [--user NAME]
   guard.py project-on [--path DIR] [--user NAME]
   guard.py list
@@ -17,11 +18,17 @@ using Claude Code's copy of the managed settings, and prints stand-ins and count
 only, never a value. The filled file holds real customer data: send or use it
 yourself.
 
+report files a /data-guard:report as an issue in Data Guard's GitHub repo, with this
+machine's gh. The token comes from Data Guard's note after the user typed the command.
+bigmac builds the issue: the words Data Guard caught appear only where bigmac's own model
+judged them not to be customer data, and the rest stay as kinds and stand-ins. This
+prints the issue's link, never the issue. Without gh, the report is saved to a file.
+
 stats says how fast Data Guard has been for you: it times the hook on this computer
 (five tries through the organisation's hook command), then asks the scanner for your
 checks in the audit log. Timings, counts and tool names only.
 
-Anyone can run status, stats and fill. Switching Data Guard off for one session isn't done
+Anyone can run status, stats, fill and report. Switching Data Guard off for one session isn't done
 here: the engineer types `/data-guard:off <reason>` as a prompt, which only a
 person can do. project-off, project-on and list need the Data Guard admin key
 in ~/.claude-dlp/admin.key, or SCANNER_ADMIN_KEY; the key is never printed.
@@ -39,6 +46,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -123,6 +131,48 @@ def post_fill(body: dict) -> dict:
     except ValueError:
         sys.exit("Data Guard didn't answer, so nothing was filled. Check the status line isn't red, "
                  "then try again.")
+
+
+# ------------------------------------------------------------------ report
+def gh_command() -> list:
+    """gh, or DATA_GUARD_GH as a JSON list (the tests' stand-in for gh)."""
+    if os.environ.get("DATA_GUARD_GH"):
+        return json.loads(os.environ["DATA_GUARD_GH"])
+    found = shutil.which("gh")
+    return [found] if found else []
+
+
+def report(token: str) -> None:
+    if not token:
+        sys.exit("Say which report: guard.py report <token>, from Data Guard's note after /data-guard:report.")
+    raw, _ = via_hook("/report", {"token": token}, "report")
+    try:
+        answer = json.loads(raw)
+    except ValueError:
+        sys.exit("Data Guard didn't answer, so nothing was reported. Check the status line isn't red, "
+                 "then type /data-guard:report again.")
+    if "body" not in answer:
+        sys.exit(f"Nothing was reported: {answer.get('error', 'Data Guard gave no reason')}.")
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".md", prefix="data-guard-report-",
+                                     delete=False) as f:
+        f.write(answer["body"])
+    gh, why = gh_command(), "gh isn't installed"
+    if gh:
+        try:
+            r = subprocess.run(gh + ["issue", "create", "-R", answer["repo"], "--title", answer["title"],
+                                     "--body-file", f.name], capture_output=True, text=True, timeout=60)
+            if r.returncode == 0:
+                os.remove(f.name)
+                print("Reported: " + ((r.stdout or "").strip().splitlines() or ["(gh gave no link)"])[-1])
+                return
+            why = ((r.stderr or r.stdout or "").strip().splitlines() or ["gh failed"])[-1]
+        except (OSError, subprocess.TimeoutExpired) as e:
+            why = f"gh didn't run: {e}"
+    kept = Path(tempfile.gettempdir()) / f"data-guard-report-{time.strftime('%Y%m%d-%H%M%S')}.md"
+    os.replace(f.name, kept)
+    sys.exit(f"Couldn't open the GitHub issue ({why}). The report is saved in {kept}. It holds only what "
+             "bigmac's model cleared, so it's fine to send to whoever looks after Data Guard, or to post at "
+             f"https://github.com/{answer['repo']}/issues/new once gh can (gh auth login).")
 
 
 # ------------------------------------------------------------------ stats
@@ -277,9 +327,11 @@ def fill(draft_path: str, sources: list, out: str) -> None:
 
 def main() -> None:
     p = argparse.ArgumentParser(description="Check Data Guard, fill a draft, or turn it off or on for a project.")
-    p.add_argument("action", choices=["status", "stats", "fill", "off", "on", "project-off", "project-on", "list"])
+    p.add_argument("action", choices=["status", "stats", "fill", "report", "off", "on", "project-off",
+                                      "project-on", "list"])
     p.add_argument("--days", type=int, default=7, help="stats: how many days back to look, 1 to 30 (default 7)")
-    p.add_argument("draft", nargs="?", help="fill: the draft with stand-ins, e.g. reply.draft.md")
+    p.add_argument("draft", nargs="?", metavar="DRAFT_OR_TOKEN",
+                   help="fill: the draft with stand-ins, e.g. reply.draft.md; report: the token from Data Guard's note")
     p.add_argument("--from", dest="sources", action="append", default=[],
                    help="fill: a file holding the real values (repeat for several)")
     p.add_argument("--out", help="fill: where to write the filled copy (default: the draft's name without .draft)")
@@ -295,6 +347,8 @@ def main() -> None:
                  "Data Guard off or on for a session, so Claude can't do it for you.")
     if a.action == "fill":
         fill(a.draft, a.sources, a.out)
+    elif a.action == "report":
+        report(a.draft)
     elif a.action == "stats":
         if not 1 <= a.days <= 30:
             sys.exit("--days must be 1 to 30.")
