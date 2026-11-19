@@ -354,8 +354,13 @@ def main() -> None:
             sys.exit("--days must be 1 to 30.")
         stats(a.days)
     elif a.action == "status":
+        # The way the hooks go (Tailscale, then bigmac's LAN), so this says what the status
+        # line says: Tailscale alone called bigmac unreachable while the hooks were working.
         session = os.environ.get("CLAUDE_CODE_SESSION_ID")
-        line = request("POST", "/statusline", {"cwd": path, "session_id": session}, {"x-user": a.user})
+        line, _ = via_hook("/statusline", {"cwd": path, "session_id": session}, "status")
+        if not line.strip():
+            sys.exit("Can't reach Data Guard on bigmac over Tailscale or the LAN. Until it answers, Claude Code "
+                     "won't send prompts or run tools. Check Tailscale is connected to the TrueNorth tailnet.")
         print(ANSI.sub("", line.decode("utf-8")).strip().lstrip("●○ ") + f"  [{path}, user {a.user}]")
     elif a.action == "list":
         rows = admin("GET")

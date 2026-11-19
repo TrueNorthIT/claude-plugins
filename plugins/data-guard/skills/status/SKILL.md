@@ -1,6 +1,6 @@
 ---
 name: status
-description: TrueNorth's Data Guard, which checks Claude Code prompts and tool output for customer data under organisation policy. Use when the user types /data-guard:status, asks whether Data Guard (or DLP, or the customer-data scanner) is on, why a prompt or tool call was blocked or output redacted, why the status line's counts went up, what the status line means, which /data-guard commands there are, how to work with test, fictional or made-up data without it being flagged, how to mark a file as test data, or what is exempt. Also use when the user wants an email, letter, report or file written with real customer data that Data Guard showed you as stand-ins (Person_1a2b and so on), or a write was refused because it contained stand-ins: draft it and fill it with guard.py fill.
+description: TrueNorth's Data Guard, which checks Claude Code prompts and tool output for customer data under organisation policy. Use when the user types /data-guard:status, asks whether Data Guard (or DLP, or the customer-data scanner) is on, why a prompt or tool call was blocked or output redacted, why the status line's counts went up, what the status line means, which /data-guard commands there are, how to work with test, fictional or made-up data without it being flagged, how to mark a file as test data, what is exempt, or how to keep a client's name readable in a project (.allowed-names). Also use when the user wants an email, letter, report or file written with real customer data that Data Guard showed you as stand-ins (Person_1a2b and so on), or a write was refused because it contained stand-ins: draft it and fill it with guard.py fill.
 ---
 
 # Data Guard
@@ -19,6 +19,14 @@ don't block a prompt. Company names count: our clients and their contacts (from
 the PSA) anywhere, every account name in CRM output, and any other company the
 name model spots next to other customer data. The tools we use, such as
 Microsoft, GitHub and Azure, are left alone.
+
+A client's name that a project works with can stay as written: the user lists it,
+one per line, in a `.allowed-names` file in the project folder, and it counts from
+the next session (`/clear` starts one). Only company names count: people and contact
+details next to it are still replaced, and web searches still can't carry it. You
+can't write that file, so tell the user the line to add.
+
+For what to query from a customer's system, and how, see the `customer-data` skill.
 
 ## When the user types /data-guard:status
 

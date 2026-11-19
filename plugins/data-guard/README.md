@@ -16,6 +16,8 @@ plugin for everyone.
 | Work with fictional data all session | `/data-guard:off <why>`, and `/data-guard:on` after |
 | Write an email or file with the real values Claude only saw as stand-ins | Claude drafts it as `reply.draft.md`, then `guard.py fill` puts the real values in on your machine ([Draft, then fill](#draft-then-fill)) |
 | See whether Data Guard is slowing you down | `/data-guard:stats` (or `/data-guard:stats 30` for 30 days) ([How fast it is](#how-fast-it-is)) |
+| Keep a client's name readable in a project | List it in `.allowed-names` in the project folder ([Company names](#what-it-checks)) |
+| Know what Claude may query from a customer's system | Ask Claude: it follows the `customer-data` skill ([Customer systems](#customer-systems)) |
 | Fix a red status line | Connect Tailscale to the TrueNorth tailnet. While it's red, nothing is checked. |
 
 ## Commands
@@ -168,6 +170,22 @@ them is JSON or CSV (an export saved as `src/x.py` is still an export).
   is swapped for a stand-in such as `Client_1a2b` when other customer data is
   next to it. The tools we use, such as Microsoft, GitHub and Azure, are left
   alone.
+- **Names your project works with stay readable.** List a client's name, one per
+  line, in a file called `.allowed-names` in the project folder, and commit it so
+  everyone on the project gets it. From the next session (`/clear` starts one)
+  Data Guard leaves it as written. Only company names count: people and contact
+  details next to it are still replaced, and Claude still can't put it in a web
+  search. Only you can change the file; Claude isn't allowed to.
+
+## Customer systems
+
+The `customer-data` skill tells Claude how TrueNorth works with customers'
+systems: what it may query from Dataverse, Graph, Application Insights and logs
+(IDs, counts, state and status, not names or free text), how you get readable
+records (a script that saves them under `exports/` and prints counts), and the
+rules for Terraform state, secrets and connectors. Claude loads it before it
+queries a customer's system; it's the detail behind the
+[AI Use Policy](https://claude.ai/artifact/5zxetmEojVtMsoNsnpEEJE).
 
 ## How fast it is
 
