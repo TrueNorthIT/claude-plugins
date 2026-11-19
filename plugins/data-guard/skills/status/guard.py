@@ -56,8 +56,8 @@ from typing import Tuple
 URL = os.environ.get("SCANNER_URL", "https://claude-dlp.tail08382e.ts.net").rstrip("/")
 KEY_FILE = Path.home() / ".claude-dlp" / "admin.key"
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
-UNREACHABLE = ("Can't reach Data Guard at {url} ({why}). Until it answers, Claude Code won't send "
-               "prompts or run tools. Check Tailscale is connected to the TrueNorth tailnet.")
+UNREACHABLE = ("Can't reach Data Guard at {url} ({why}). Until it answers, nothing is checked: prompts and "
+               "tools still go through, unchecked. Connect Tailscale to the TrueNorth tailnet.")
 
 
 def admin_key() -> str:
@@ -359,8 +359,8 @@ def main() -> None:
         session = os.environ.get("CLAUDE_CODE_SESSION_ID")
         line, _ = via_hook("/statusline", {"cwd": path, "session_id": session}, "status")
         if not line.strip():
-            sys.exit("Can't reach Data Guard on bigmac over Tailscale or the LAN. Until it answers, Claude Code "
-                     "won't send prompts or run tools. Check Tailscale is connected to the TrueNorth tailnet.")
+            sys.exit("Can't reach Data Guard on bigmac over Tailscale or the LAN. Until it answers, nothing is "
+                     "checked: prompts and tools still go through, unchecked. Connect Tailscale to the TrueNorth tailnet.")
         print(ANSI.sub("", line.decode("utf-8")).strip().lstrip("●○ ") + f"  [{path}, user {a.user}]")
     elif a.action == "list":
         rows = admin("GET")
