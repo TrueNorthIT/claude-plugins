@@ -14,7 +14,7 @@
     {
       "name": "dataverse-portal",
       "source": "./plugins/dataverse-portal",
-      "description": "Scaffold a React + TypeScript + Tailwind SPA that signs citizens in with Microsoft Entra External ID (MSAL) and consumes the Dataverse Contact API, and review an existing portal or PR for security and best-practice problems."
+      "description": "Scaffold a React + TypeScript + Tailwind SPA that signs citizens in with Microsoft Entra External ID (MSAL) and consumes the Dataverse Contact API, review an existing portal or PR for security and best-practice problems, and check a portal against an API upgrade's breaking changes."
     },
     {
       "name": "create-gds-service",
