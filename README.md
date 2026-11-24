@@ -86,7 +86,8 @@ claude-plugins/
 │   │   └── skills/
 │   │       ├── build-portal/
 │   │       │   └── SKILL.md          ← Auto-invoked skill
-│   │       └── review-portal/        ← A plugin can carry more than one
+│   │       ├── review-portal/        ← A plugin can carry more than one
+│   │       └── check-upgrade/
 │   ├── dataverse-terraform/
 │   ├── create-gds-service/
 │   └── bigmac/
