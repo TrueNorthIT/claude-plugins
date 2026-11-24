@@ -45,15 +45,32 @@ like:
 | "how do I call this from TypeScript?" | `@truenorth-it/dataverse-client` — including the package name the docs get wrong |
 | "is this scope safe to put in front of citizens?" | What the server enforces on every request, what it takes on trust from the scope, and the abuse tests to run before go-live |
 
+## persona-check
+
+A second skill, for people working on the CPA itself or the repos around it
+(the Terraform provider, the Table Manager, onboarding, these plugins, portals
+built on the CPA). Asked to add, build, change or plan something there, it
+reads the CPA's personas and checks the request against each of them before
+any code is written (green, amber or red, plus the follow-on work their rules
+add), then checks the follow-on list again before the PR.
+
+The personas live in the CPA repo's `personas/` folder, which is the source of
+truth: the skill reads them locally when it runs in the CPA repo, and fetches
+them from GitHub with `gh` anywhere else. It never keeps a copy of the rules,
+and stops rather than guessing if it can't read them.
+
 ## What you need
 
-Nothing. There are no credentials, no network calls and no tooling required to
+Nothing for `contact-api-reference`. There are no credentials, no network calls and no tooling required to
 answer a question about how the API behaves.
 
 Credentials only come into it when you want to *run* something — a token to call
 a data route, or an admin credential for `/_admin/*`. The skill says which is
 which rather than asking for a key to answer a question it can answer from
 knowledge.
+
+`persona-check` needs the GitHub CLI (`gh`), signed in with read access to
+`TrueNorthIT/dataverse-contact-api`, except when it runs inside that repo.
 
 ## Things worth knowing up front
 
@@ -94,6 +111,8 @@ dataverse-contact-api/
         ├── troubleshooting.md          whoami-first triage
         ├── admin.md                    /_admin, contact-admin CLI, tokens
         └── security.md                 what the server enforces, what it trusts the scope with, abuse tests
+└── skills/persona-check/
+    └── SKILL.md                        check work against the CPA personas (read from the CPA repo)
 ```
 
 ## Related plugins

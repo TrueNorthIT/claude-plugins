@@ -64,12 +64,12 @@ For the URL, tier, and project name: state what you assumed in one sentence befo
 
 ## Version check
 
-**Expected plugin version: 0.19.0**
+**Expected plugin version: 0.23.0**
 
 Before doing any work, verify the installed plugin version. Read the plugin manifest at `../../.claude-plugin/plugin.json` (relative to this skill file) using the Read tool:
 
-- If the `version` field matches `0.19.0` — proceed.
-- If the `version` field is **older** — tell the user: "Your dataverse-portal plugin is v`<installed>` but this skill expects v0.19.0. Run `/plugin marketplace update truenorthit` and then `/reload-plugins` to get the latest version." Then stop.
+- If the `version` field matches `0.23.0` or is newer — proceed.
+- If the `version` field is **older** — tell the user: "Your dataverse-portal plugin is v`<installed>` but this skill expects v0.23.0. Run `/plugin marketplace update truenorthit` and then `/reload-plugins` to get the latest version." Then stop.
 - If the file cannot be read — warn the user but proceed.
 
 ## Workflow
@@ -78,73 +78,20 @@ All admin operations use the `contact-admin` CLI with `--json` for structured ou
 
 ### 0. Discover the deployment and resolve the scope
 
-Two parallel calls (both public, no auth):
+Read `references/discovery.md` now and run its two public calls (no auth): the
+`.well-known/oauth-protected-resource` document, parsed with `node -e` and
+guarded so a non-CIAM issuer stops the skill, and `contact-admin scopes list`.
+It has the field map (`idp_provider`, `idp_issuer`, `idp_audience`, the
+`auth0_*` aliases to ignore) and the shell that derives `TENANT_ID` and
+`ENTRA_API_SCOPE`. In short:
 
-```bash
-# Identity-provider config for the portal's .env
-WELL_KNOWN=$(curl -s "${API_URL}/.well-known/oauth-protected-resource")
-field() { echo "$WELL_KNOWN" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>process.stdout.write(String(JSON.parse(d)['$1']??'')))"; }
-IDP_PROVIDER=$(field idp_provider)
-IDP_ISSUER=$(field idp_issuer)
-IDP_AUDIENCE=$(field idp_audience)
-
-# This skill only handles Entra External ID (CIAM). Everything below assumes a
-# ciamlogin.com authority, so check the provider before parsing anything.
-if [ "$IDP_PROVIDER" != "entra-external-id" ]; then
-  echo "idp_provider is '$IDP_PROVIDER' — this skill only scaffolds Entra External ID portals." >&2
-  exit 1
-fi
-
-# Entra External ID (CIAM) issuers are
-# https://<tenantId>.ciamlogin.com/<tenantId>/v2.0 — the tenant GUID appears
-# twice, so either occurrence will do.
-TENANT_ID=$(echo "$IDP_ISSUER" | sed -E 's#^https://([^.]+)\.ciamlogin\.com/.*#\1#')
-
-# sed passes non-matching input through UNCHANGED, so a workforce-Entra issuer
-# (login.microsoftonline.com/<tid>/v2.0 — also reported as entra-external-id)
-# leaves the whole URL in TENANT_ID, and the authority becomes
-# https://https://login.microsoftonline.com/...ciamlogin.com/... — an app that
-# builds, runs, and can never sign anyone in. Fail loudly here instead.
-if ! [[ "$TENANT_ID" =~ ^[0-9a-f-]{36}$ ]]; then
-  echo "idp_issuer is not a ciamlogin.com CIAM issuer: $IDP_ISSUER" >&2
-  exit 1
-fi
-
-# idp_audience may already be the full Application ID URI (api://<guid>) or a
-# bare GUID, depending on how the deployment was configured. Strip any leading
-# api:// before appending, or the scope ends up api://api://<guid>/…
-ENTRA_API_SCOPE="api://${IDP_AUDIENCE#api://}/access_as_user"
-```
-
-```bash
-# Existing scopes
-contact-admin scopes list --url "${API_URL}" --json
-```
-
-Field map from `.well-known`:
-
-| JSON field | What it is / where it goes |
-|---|---|
-| `idp_provider` | Which IdP the deployment uses. **Branch on this, together with `idp_issuer`.** `entra-external-id` **and** a `ciamlogin.com` issuer → everything below. Anything else stops the skill: `auth0`, `azure-b2c`, and `entra-external-id` on a workforce (`login.microsoftonline.com`) issuer all take a different authority shape. Tell the user this skill only scaffolds Entra External ID (CIAM) portals — the authority, `knownAuthorities` and tenant parsing below are all CIAM-shaped, and on any other issuer they produce an app that builds, runs, and signs nobody in. |
-| `idp_issuer` | `https://<tenantId>.ciamlogin.com/<tenantId>/v2.0`. Parse the tenant GUID out of it → `VITE_ENTRA_TENANT_ID`. Guard the parse — see the shell above |
-| `idp_audience` | The audience the API validates. Either a **bare GUID** or the full `api://<guid>` Application ID URI — the shipped onboarding Terraform sets the URI form. **Strip a leading `api://` before appending `/access_as_user`** → `VITE_ENTRA_API_SCOPE` |
-| `resource` | Same value as `idp_audience`. Informational |
-| `auth0_*` | **Ignore.** Backwards-compatibility aliases from before the Entra migration. On an Entra deployment `auth0_domain` holds a `ciamlogin.com` URL, so feeding it to an Auth0 SDK produces an app that builds, runs, and never signs anyone in. |
-
-> **If any part of you wants to reach for `@auth0/auth0-react`, `Auth0Provider`,
-> `useAuth0` or `VITE_AUTH0_*` while `idp_provider` says `entra-external-id`,
-> stop and say so.** That combination means an out-of-date copy of this skill is
-> installed — below 0.14.0 it scaffolded Auth0 — and it is the one failure that
-> does not announce itself: the app builds, the dev server starts, sign-in
-> redirects, and nobody can get in. Tell the user to run
-> `claude plugin update dataverse-portal@truenorthit` and start this step again.
-> Do not split the difference by wiring MSAL against `auth0_*` values.
-
-There is exactly **one** coarse scope — `access_as_user`. No app roles, no per-permission scopes, no group claims. Everything about who may read or write what is decided inside the API from the scope's `defaults.json` plus `cpa_apipermission`; see step 10.
-
-**Not in the discovery document: the SPA client ID.** It belongs to an app registration in the customer's Azure tenant and nothing on the API side knows about it. Step 8 asks the user for it. Nothing before then needs it, so don't ask yet.
-
-Cache `TENANT_ID`, `IDP_AUDIENCE` and `ENTRA_API_SCOPE` for step 8.
+- **Only Entra External ID (CIAM) is supported.** `idp_provider` must be
+  `entra-external-id` **and** `idp_issuer` a `ciamlogin.com` issuer; anything
+  else stops the skill. Never reach for `@auth0/auth0-react` or `VITE_AUTH0_*`.
+- **Strip a leading `api://` from `idp_audience`** before appending
+  `/access_as_user`.
+- **The SPA client ID is not in the discovery document.** Step 8 asks for it.
+- Cache `TENANT_ID`, `IDP_AUDIENCE` and `ENTRA_API_SCOPE` for step 8.
 
 **Resolve `TARGET_SCOPE` now — before step 1.** Authentication needs the scope.
 
@@ -222,117 +169,20 @@ First, check what's already published:
 contact-admin tables list --url "${API_URL}" --scope "${TARGET_SCOPE}" --json
 ```
 
-Skip tables that are already published. For each table the portal needs that is NOT yet published, follow ONE of the paths below in priority order — and whichever path produced the schema, put it through **Before you publish** (the end of this step) first. Publishing is the moment a route becomes reachable, by anyone holding a token the scope accepts, with or without this portal.
+Skip tables that are already published. For each table the portal needs that is NOT yet published, follow ONE of the paths below in priority order — and whichever path produced the schema, put it through **Before you publish** (the end of `references/tables.md`) first. Publishing is the moment a route becomes reachable, by anyone holding a token the scope accepts, with or without this portal.
 
-#### Path A — Use a reference schema (MANDATORY for case portals)
+**Read `references/tables.md` before saving or publishing any table.** It holds:
 
-For **case portals**, ALWAYS use these exact schemas. Do NOT scaffold `incident` or `annotation` from discovery — the scaffolder gets the join paths, filters, and polymorphic lookups wrong.
+| Path | When | What's in the reference |
+|---|---|---|
+| A — reference schema | **Mandatory for case portals** | `CASE_SCHEMA` (route `case` over `incident`) and `CASENOTES_SCHEMA` (route `casenotes` over `annotation`), verbatim, with why each part matters. Publish `case` first, then `casenotes` |
+| B — copy from `default` | A table the default scope already publishes | `tables get … --scope default`, fix `lookupTable` values, then save and publish |
+| C — scaffold from discovery | Last resort | `setup-table <entity> --no-publish`, never letting the scaffolder publish; join-ambiguity and empty-table handling |
 
-Publish `case` first, then `casenotes`. The **route name is `case`** — the
-Dataverse table is `incident`, but the route the SDK and the generated frontend
-call is `case`, matching the platform's own `case.schema.json`. Publish it as
-`incident` and every read and write in the scaffolded portal 404s. The draft key
-and the `--tables` value must both be the route name, or `publish` finds no
-draft:
-
-```bash
-contact-admin tables save-draft case --schema '<CASE_SCHEMA>' --url "${API_URL}" --scope "${TARGET_SCOPE}"
-contact-admin tables publish --tables case --url "${API_URL}" --scope "${TARGET_SCOPE}"
-contact-admin tables save-draft casenotes --schema '<CASENOTES_SCHEMA>' --url "${API_URL}" --scope "${TARGET_SCOPE}"
-contact-admin tables publish --tables casenotes --url "${API_URL}" --scope "${TARGET_SCOPE}"
-```
-
-**CASE_SCHEMA** — the `case` route over the Dataverse `incident` table:
-```json
-{"routeName":"case","description":"Cases and support tickets","dataverseTable":"incidents","dataverseLogicalName":"incident","requiredPermission":"case","primaryKey":"incidentid","aliases":["incident","incidents","cases"],"defaultSelect":["incidentid","title","ticketnumber","statecode","statuscode","prioritycode","casetypecode","createdon","modifiedon"],"contactJoinPath":[{"table":"contacts","from":"customerid_contact","key":"contactid"}],"alternateContactJoinPaths":[[{"table":"contacts","from":"primarycontactid","key":"contactid"}]],"teamJoinPath":[{"table":"accounts","from":"customerid_account","key":"accountid"}],"createDefaults":[{"field":"customerid_account","bindTo":"account","entitySet":"accounts"},{"field":"primarycontactid","bindTo":"contact","entitySet":"contacts"}],"lookupFields":["ticketnumber","title"],"lookupSearchContains":["ticketnumber","title"],"filters":["statecode eq 0"],"fields":{"incidentid":{"type":"string","description":"Unique case identifier","readOnly":true},"ticketnumber":{"type":"string","description":"Case number","readOnly":true},"title":{"type":"string","description":"Case title"},"description":{"type":"string","description":"Case description"},"statecode":{"type":"choice","description":"Case status","readOnly":true},"statuscode":{"type":"choice","description":"Status reason","readOnly":true},"prioritycode":{"type":"choice","description":"Priority","readOnly":true},"casetypecode":{"type":"choice","description":"Case type"},"caseorigincode":{"type":"choice","description":"Case origin"},"createdon":{"type":"datetime","description":"Date created","readOnly":true},"modifiedon":{"type":"datetime","description":"Date last modified","readOnly":true},"customerid":{"type":"lookup","description":"Customer (contact or account)","readOnly":true},"primarycontactid":{"type":"lookup","description":"Primary contact","lookupTable":"contact","readOnly":true},"ownerid":{"type":"lookup","description":"Record owner","readOnly":true}}}
-```
-
-Why this schema matters:
-- `routeName` is `case`, and `aliases` keep `incident`/`incidents`/`cases` working for anyone who guesses the Dataverse name. `requiredPermission` is `case`, so the permission strings in step 10 are `case`, `case:write`, `case:create`, `case:lookup`
-- `contactJoinPath` uses `customerid_contact` — NOT `responsiblecontactid` or `ownerid` which the scaffolder picks and which returns no data for `/me` routes
-- `createDefaults` auto-binds the logged-in user's contact and account when creating cases
-- Status, priority and the contact link are `readOnly`: a citizen raises and describes a case, staff triage and close it. `primarycontactid` is read-only *because* `createDefaults` binds it — the default only applies on create, so a writable field would let the caller re-point it afterwards. The API drops read-only fields silently rather than erroring, so build no UI that edits them
-- `filters: ["statecode eq 0"]` shows only active cases
-
-**CASENOTES_SCHEMA** — annotations filtered to cases (route name is `casenotes`, NOT `annotation`):
-```json
-{"routeName":"casenotes","description":"Notes and annotations linked to cases","dataverseTable":"annotations","dataverseLogicalName":"annotation","requiredPermission":"casenotes","primaryKey":"annotationid","aliases":["casenote"],"defaultSelect":["annotationid","subject","notetext","incidentid","isdocument","createdon","modifiedon"],"contactJoinPath":[{"table":"incidents","from":"objectid_incident","key":"incidentid"},{"table":"contacts","from":"customerid_contact","key":"contactid"}],"alternateContactJoinPaths":[[{"table":"incidents","from":"objectid_incident","key":"incidentid"},{"table":"contacts","from":"primarycontactid","key":"contactid"}]],"teamJoinPath":[{"table":"incidents","from":"objectid_incident","key":"incidentid"},{"table":"accounts","from":"customerid_account","key":"accountid"}],"filters":["objecttypecode eq 'incident'"],"parentTable":{"table":"case","navigationProperty":"objectid_incident"},"lookupFields":["subject"],"lookupSearchContains":["subject"],"fields":{"annotationid":{"type":"string","description":"Unique note identifier","readOnly":true},"subject":{"type":"string","description":"Note subject / title"},"notetext":{"type":"string","description":"Note body text"},"isdocument":{"type":"boolean","description":"Whether the note has a file attachment","readOnly":true},"filename":{"type":"string","description":"Attachment file name","readOnly":true},"filesize":{"type":"number","description":"Attachment file size in bytes","readOnly":true},"mimetype":{"type":"string","description":"Attachment MIME type","readOnly":true},"incidentid":{"type":"lookup","description":"Parent case","lookupTable":"incident","valueField":"objectid","bindField":"objectid_incident"},"objecttypecode":{"type":"string","description":"Regarding entity type","readOnly":true},"ownerid":{"type":"lookup","description":"Record owner","readOnly":true},"createdon":{"type":"datetime","description":"Date created","readOnly":true},"modifiedon":{"type":"datetime","description":"Date last modified","readOnly":true}},"files":{"content":"documentbody","fileName":"filename","mimeType":"mimetype","size":"filesize"}}
-```
-
-Why this schema matters:
-- Route name is `casenotes` — do NOT publish a generic `annotation` route
-- `lookupTable` uses `"incident"` (the Dataverse logical name) so it resolves in any scope. `parentTable.table` is different on purpose — it names the **route** (`case`), not the logical name
-- `incidentid` has `valueField: "objectid"` and `bindField: "objectid_incident"` for the polymorphic lookup — without this, writes fail with "Invalid property 'incidentid'"
-- `contactJoinPath` is two hops: annotation → incident → contact (via `customerid_contact`)
-- `filter: ["objecttypecode eq 'incident'"]` restricts to case-linked notes only
-- The join reaches **every** note on the citizen's case — including ones staff wrote for each other. Ask whether that's acceptable before publishing. If the organisation marks customer-facing notes somehow (a flag, a prefix its staff already use), add it to `filters` and prove it with `test-query`; if not, tell the user plainly that staff notes on a case will be visible to the customer
-- `files` serves a note's attachment as a 5-minute download link (API 1.31.0+), and keeps `documentbody` out of the fields so it can never come back inline. Show `filename` and `filesize`, and fetch the link when the citizen clicks (see *Files and attachments* below). On an older deployment the PUT refuses `files`: drop the key, and show attachments as names only
-- Grant `casenotes:create`, not `casenotes:write` (step 10). Adding a note needs only `create`; `write` would let a citizen edit any note the join reaches, staff ones included
-
-For the frontend, scope child records to their parent:
-```ts
-const notes = await client.me.list<Casenotes>("casenotes", {
-  filter: { field: "incidentid", operator: "eq", value: caseId },
-});
-```
-
-#### Path B — Copy from default scope
-
-For tables NOT covered by the reference schemas above, check if the default scope has a working config:
-
-```bash
-contact-admin tables get <routeName> --url "${API_URL}" --scope default --json
-```
-
-If found, check any `lookupTable` values in the fields — change them to the Dataverse logical name (e.g. `"incident"` not `"case"`) so they resolve in any scope. A copied definition was written for another scope's portal and another scope's defaults, so put it through **Before you publish** line by line. Then save and publish:
-
-```bash
-contact-admin tables save-draft <routeName> --schema '<the-schema-json>' --url "${API_URL}" --scope "${TARGET_SCOPE}"
-contact-admin tables publish --tables <routeName> --url "${API_URL}" --scope "${TARGET_SCOPE}"
-```
-
-#### Path C — Scaffold from discovery (last resort)
-
-Only use this for tables that have no reference schema AND don't exist in the default scope. **Scaffold, review, then publish — never let the scaffolder publish for you.** A scaffold lists every column the entity has, marks none of them `readOnly` and gives no lookup a `lookupTable`. Published as it stands, it lets anyone holding `write` change every column on their rows — status, owner and custom fields included — and point lookups anywhere. `setup-table` publishes by default, so always pass `--no-publish`:
-
-```bash
-# Scaffold and save a DRAFT — nothing is reachable yet
-contact-admin setup-table <entity> --no-publish --url "${API_URL}" --scope "${TARGET_SCOPE}" --json
-```
-
-Then take the draft through **Before you publish**: cut `fields` down to what the portal shows or writes, mark the rest of what remains `readOnly` where the citizen must not change it, and give each lookup the portal writes a `lookupTable`. Save the edited schema with `tables save-draft` and publish it with `tables publish` (the granular commands below).
-
-**Join-ambiguity handling:** If the response includes `joinAnalysis.contactJoinAmbiguous: true` or `joinAnalysis.accountJoinAmbiguous: true`:
-
-1. Run `contact-admin tables sample-data <entity> --top 3 --json` to inspect the chosen join's lookup values.
-2. **Pause and ask the user** in one sentence, e.g.:
-   > "On `incident` I found two contact joins: `customerid → contact` and `ownerid → contact`. The scaffold picked `customerid`. Sample rows show `customerid` = [Alice, Bob, (null)]. Confirm, or say which to use."
-3. If the user picks a different join, use the granular commands:
-   ```bash
-   contact-admin tables scaffold <entity> --json   # get the schema
-   # modify schema.contactJoinPath / schema.teamJoinPath
-   contact-admin tables save-draft <routeName> --schema '<modified-json>'
-   contact-admin tables publish --tables <routeName>
-   ```
-
-**Empty-table case:** if `sample-data` returns `count: 0`, don't block. Tell the user: "No rows in `<entity>` yet — join was chosen from metadata only; double-check once real data lands."
-
-#### Before you publish
-
-The API enforces exactly what a schema declares, on every request, whatever the portal does. So a schema can work perfectly and still leak. Check each one before `tables publish`:
-
-| Check | Why |
-|---|---|
-| `fields` holds only what this portal shows or writes | Anyone who can read the route can `select` and `filter` on every column in `fields`, whatever `defaultSelect` says. Leave out internal notes, risk or safeguarding flags, staff-only comments |
-| Everything the citizen must not change is `readOnly: true` — identifiers, status and priority, owner, dates, and above all the identity columns: `emailaddress1` (the API matches the sign-in email to it), the company link `parentcustomerid`, any column a join path follows, every field a `createDefaults` entry binds | A field is writable unless it says otherwise, and the API drops read-only fields silently |
-| Every lookup is `readOnly` unless the citizen has to choose it, and each one they do choose has a `lookupTable` naming a route published in this scope | `readOnly` is the control that always holds. For a lookup the citizen sets, `lookupTable` is what lets the API check the target row belongs to them; without it, nothing checks |
-| `defaultSelect` is not empty, and every expand lists its fields | An empty list means "no projection", not "nothing" |
-| No expand reveals more than the parent should — a staff member's email via `ownerid`, another customer's details | An expand returns its fields from whatever row the lookup points at, with no scoping of its own |
-| No `publicRead` or `publicCreate` unless the user asked for an unauthenticated route | Public means anyone on the internet. Never add it to make an auth problem go away |
-| No `fetchXml` unless the template scopes itself with `{{contactid}}` / `{{accountid}}` | A FetchXML template replaces the join path *and* the route's `filters` |
-| Notes and activities: decide whether staff-written rows should be visible | A child joined through the case reaches every child of that case |
-
-Path A's schemas already pass these, notes caveat aside. Paths B and C produce schemas written for someone else's portal or by a generator, and need the check line by line.
+The *Before you publish* checklist covers: `fields` cut to what the portal uses, identity and
+status columns `readOnly`, lookups `readOnly` or given a `lookupTable`, no
+`publicRead`/`publicCreate` nobody asked for, no unscoped `fetchXml`, and a
+decision on staff-written notes.
 
 ### 5. Verify tables return data
 
@@ -385,634 +235,26 @@ schema.
 
 ### 7. Scaffold the frontend
 
-#### The house stack
+Read the reference for each part as you reach it:
 
-Scaffold this unless the user asks for something else. It is what the existing
-portals run, so a developer moving between them meets the same shapes:
-
-| | | |
-|---|---|---|
-| **React** | 19 | |
-| **Vite** | latest | build and dev server; no dev proxy — the API is CORS-enabled |
-| **TypeScript** | strict | |
-| **TanStack Query** | v5 | **all server state.** No `useEffect` fetching, no SWR, no Redux |
-| **MSAL** | v5, latest | `msal-browser` + `msal-react`, majors matched — Entra External ID sign-in |
-| **`@truenorth-it/dataverse-client`** | **latest**, never below 1.25.0 | every API call, plus the generated types |
-| **React Router** | 7 | |
-| **Tailwind** | v4, via `@tailwindcss/vite` | |
-| **DOMPurify** | latest | **only** if the portal renders HTML from Dataverse — knowledge articles, email bodies. See *Security* below |
-| **Node** | >= 20 | |
-
-Forms are plain `useState` controlled components. Do not reach for
-`react-hook-form` or `zod` — the existing portals declare them and use neither.
-
-From the user's cwd, scaffold into a new subdirectory. **Do not create temp folders, scaffold elsewhere then copy, or go up a directory.** Just run Vite directly:
-
-```bash
-PROJECT_NAME=<inferred or from prompt>
-npm create vite@latest "$PROJECT_NAME" -- --template react-ts
-cd "$PROJECT_NAME"
-npm install
-npm install @azure/msal-browser@^5 @azure/msal-react@^5 react-router-dom \
-  @tanstack/react-query @truenorth-it/dataverse-client@latest
-npm install -D tailwindcss @tailwindcss/vite
-
-# The react-ts template ships no `typecheck` script — `npm run build` is the only
-# thing that runs tsc, and it also bundles. Add the standalone gate, because
-# step 9 depends on it to catch bad SDK query shapes before the user does.
-npm pkg set scripts.typecheck="tsc --noEmit"
-
-# Types come from the scope's live schema, never from hand-typed interfaces.
-# generate reads the public /schema and /choices endpoints (no token needed).
-npm pkg set scripts.generate:types="dataverse-client generate --url ${API_URL} --scope ${TARGET_SCOPE} --output src/dataverse.generated.ts"
-npm run generate:types
-```
-
-**Say which SDK version you installed** (`npm ls @truenorth-it/dataverse-client`). If it is below 1.25.0, the registry served something stale. Stop and fix that before writing code: the examples below pass generated `CreateInput` types straight to `create`, which needs 1.25.0.
-
-**The generated file is the portal's type layer.** For every table in the scope, `src/dataverse.generated.ts` has:
-
-| Export | Use it for |
+| Before you… | Read |
 |---|---|
-| `Case` | the row type — `client.me.list<Case>(…)`, `get<Case>(…)` |
-| `CaseField` | the column-name union, for `QueryOptionsFor<CaseField>` so a misspelt `select` / `filter` / `orderBy` field fails `typecheck` instead of returning a 400 |
-| `CaseCreateInput` / `CaseUpdateInput` | the writable columns only. Read-only and auto-bound columns are left out, so a form that tries to set `statuscode` fails to compile |
-| `CaseStatuscode`, `CasePrioritycode`, … | a const object per choice field (`CaseStatuscode.InProgress`), used in filters and comparisons instead of magic numbers |
-
-**The names follow the route name, not the Dataverse entity.** Route `case` gives `Case`, `casenotes` gives `Casenotes`, and a scope that publishes `incident` gives `Incident`, `IncidentField`, `IncidentStatuscode`. The examples below use `case`; check the generated file and use what it actually exports.
-
-Commit the file so a schema change shows up in the diff. Never edit it by hand. When the scope gains a column, run `npm run generate:types` again. If a screen needs a narrower shape, derive it (`Pick<Case, "title" | "ticketnumber">`) rather than declaring a parallel interface.
-
-Then generate the rest of the app. The file layout should be:
-
-```
-src/
-├── main.tsx                 ← MSAL bootstrap before React mounts, then the provider stack
-├── App.tsx                  ← sign-in gate + router
-├── auth.tsx                 ← AuthProvider / useAuth — session, getToken, signIn, signOut
-├── config/entra.ts          ← msalConfig + assertEntraConfig()
-├── env.ts                   ← VITE_API_BASE_URL + VITE_API_SCOPE
-├── index.css                ← Tailwind @import
-├── lib/client.ts            ← useDataverseClient() hook
-├── services/<table>Api.ts   ← SDK-based (fetchX, createX, updateX)
-├── hooks/use<Table>.ts      ← React hook for data + state
-├── dataverse.generated.ts   ← `npm run generate:types` — committed, never hand-edited
-└── components/
-    ├── SignInGate.tsx       ← sign-in wall + NoContactNotice
-    ├── Header.tsx
-    ├── <Table>List.tsx      ← list view with loading/error/empty states
-    └── <Table>Detail.tsx    ← detail view
-```
+| run `npm create vite`, install packages and generate types | `references/scaffold.md` — the house stack, the exact commands, the `dataverse.generated.ts` exports, the file layout |
+| write `src/config/entra.ts`, `src/main.tsx`, `src/auth.tsx` or the no-contact screen | `references/auth.md` — *Entra wiring* (the four files that must be right, the `QueryClient` settings, the dev-token escape hatch) and *Contact resolution* |
+| write `src/lib/client.ts` and `services/*Api.ts` | `references/sdk-usage.md` — the only acceptable SDK pattern, tiers, custom APIs, filters |
+| write hooks and components | `references/code-quality.md` — commented SDK calls, `useInfiniteQuery` paging, mutations, TODOs, generated types in use |
+| render API data, build a link, read a route param or show an error | `references/code-security.md` — `SafeHtml`, `safeHref`, the GUID check, `friendlyError`, files, realtime, query keys |
 
 Non-negotiable rules:
 
 - Files under 300 lines. Split components; extract hooks.
 - One concern per file.
 - No barrel exports.
-- **Always use the `@truenorth-it/dataverse-client` SDK. Never hand-roll fetch, never build OData query strings, never set the `Authorization` header yourself.** The SDK's scope clients (`client.me`, `client.team`, `client.all`) handle auth, query encoding, pagination, and error shapes. That includes custom APIs: `client.me.invokeFunction` / `invokeAction` (SDK 1.26.0 and later) call one on the `me` tier with the citizen's token, the record in `recordId` — see *SDK usage*.
+- **Always use the `@truenorth-it/dataverse-client` SDK. Never hand-roll fetch, never build OData query strings, never set the `Authorization` header yourself.** The SDK's scope clients (`client.me`, `client.team`, `client.all`) handle auth, query encoding, pagination, and error shapes. That includes custom APIs: `client.me.invokeFunction` / `invokeAction` (SDK 1.26.0 and later) call one on the `me` tier with the citizen's token, the record in `recordId` — see `references/sdk-usage.md`.
 - **Redirect flows only, never popup.** Popups get blocked, and on a phone a popup sign-in is worse than a redirect in every way. `loginRedirect`, `acquireTokenRedirect`, `logoutRedirect`.
-- **Every list pages.** A `list` call returns one page: 20 rows by default and never more than 100, because a larger `top` is cut to 100 without an error. A list screen that calls `list` once shows the first page and nothing else. Use `useInfiniteQuery`, following `page.next` with `fetchPage`, and give the screen a "Load more" button. Drain every page with `eachPage` only for a bounded set (a dropdown's options, an export), never for a screen that grows with the data. See *Code quality* for the hook.
+- **Every list pages.** A `list` call returns one page: 20 rows by default and never more than 100, because a larger `top` is cut to 100 without an error. A list screen that calls `list` once shows the first page and nothing else. Use `useInfiniteQuery`, following `page.next` with `fetchPage`, and give the screen a "Load more" button. Drain every page with `eachPage` only for a bounded set (a dropdown's options, an export), never for a screen that grows with the data. See `references/code-quality.md` for the hook.
 - **Every SDK call is typed from `dataverse.generated.ts`.** Reads pass the row type (`list<Case>`) and take `QueryOptionsFor<CaseField>`. Writes take `CaseCreateInput` / `CaseUpdateInput`, not `Partial<Case>`. Choice values come from the generated consts. No hand-written table interfaces, and no `as` casts on SDK results.
-- **The rules under *Security — what the generated code must not do* are non-negotiable too.** In short: the tier the user chose and no wider; API text rendered as text; route params checked; nothing secret in `VITE_*`; citizens shown friendly errors, not the API's.
-
-### Entra wiring — the four files that must be right
-
-Nothing here is optional or interchangeable. Each piece exists because its absence produces a specific, badly-signposted failure.
-
-**`src/config/entra.ts` — MSAL configuration.**
-
-```ts
-export const entraConfig = {
-  tenantId: import.meta.env.VITE_ENTRA_TENANT_ID ?? '',
-  clientId: import.meta.env.VITE_ENTRA_CLIENT_ID ?? '',
-  /** e.g. `api://<api-app-id>/access_as_user` — the audience the API expects. */
-  apiScope: import.meta.env.VITE_ENTRA_API_SCOPE ?? '',
-  /**
-   * Must be registered on the app registration as a Single-page application
-   * redirect URI, or sign-in fails at the IdP before the app ever sees it.
-   * `window.location.origin` keeps localhost and the deployed URL on one config.
-   */
-  redirectUri: window.location.origin,
-}
-
-export const msalConfig = {
-  auth: {
-    clientId: entraConfig.clientId,
-    authority: `https://${entraConfig.tenantId}.ciamlogin.com/${entraConfig.tenantId}`,
-    // Required: MSAL rejects an authority outside its known list otherwise.
-    knownAuthorities: [`${entraConfig.tenantId}.ciamlogin.com`],
-    redirectUri: entraConfig.redirectUri,
-    postLogoutRedirectUri: entraConfig.redirectUri,
-  },
-  // Per tab: survives a refresh, ends when the tab closes, so the app's tokens
-  // don't outlive the visit, and someone returning the next day gets a clean
-  // sign-in rather than a stale account whose refresh token has expired.
-  cache: { cacheLocation: 'sessionStorage' as const },
-}
-```
-
-Closing the tab ends the app's tokens, not the identity provider's own session, which lasts until the browser closes (or longer, if the user ticked "stay signed in"). On a shared or library PC the next person who clicks *Sign in* can land in the previous citizen's session without a password. Only `logoutRedirect` ends both, so sign-out must be one click away on every page.
-
-Neither storage choice protects a token from script running in the page. MSAL v5 encrypts its `localStorage` cache, but with a key it keeps in a cookie the page's own script can read, and any injected script can simply ask MSAL for a fresh token anyway. The defence against token theft is keeping attacker script off the page — see *Security* below.
-
-Also export an `assertEntraConfig()` that throws a named-variable error when any of the three is empty — **called from `bootstrap()`, never run at module scope.** Throwing on import happens before any error handler exists, and the result is a blank white page, which is the least diagnosable failure there is. The most likely cause is also the most boring one: an unset variable on a fresh deploy.
-
-**`src/main.tsx` — bootstrap before React mounts.**
-
-```ts
-async function bootstrap() {
-  assertEntraConfig()
-  const pca = new PublicClientApplication(msalConfig)
-
-  // MSAL does not set an active account on login by itself, and
-  // `acquireTokenSilent` needs one — without this every request after a fresh
-  // sign-in fails until the page is reloaded.
-  pca.addEventCallback((event) => {
-    if (event.eventType === EventType.LOGIN_SUCCESS && event.payload) {
-      const { account } = event.payload as AuthenticationResult
-      if (account) pca.setActiveAccount(account)
-    }
-  })
-
-  await pca.initialize()
-  // Must run before anything reads the account list, or the first render after
-  // returning from the IdP sees a signed-out app and bounces the user back to
-  // sign in — a loop that looks like a broken login.
-  await pca.handleRedirectPromise()
-  if (!pca.getActiveAccount()) {
-    const [first] = pca.getAllAccounts()
-    if (first) pca.setActiveAccount(first)
-  }
-
-  createRoot(root).render(/* provider stack below */)
-}
-
-bootstrap().catch((err) => { /* render the message into #root as plain DOM */ })
-```
-
-Everything before React mounts sits outside any error boundary, so the `catch` must paint the message into the page itself, with plain DOM — whatever failed may well be the reason React cannot start.
-
-**Provider order is load-bearing:**
-
-```
-MsalProvider → QueryClientProvider → AuthProvider → BrowserRouter → routes
-```
-
-`useAuth` reads MSAL, so `AuthProvider` must sit inside `MsalProvider`; anything that fetches must sit inside `AuthProvider`.
-
-**The `QueryClient` needs two non-default settings:**
-
-```ts
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 60_000,
-      refetchOnWindowFocus: false,
-      // Never retry a 4xx, and this matters more than it looks. Query's retryer
-      // only continues while the tab is focused: a scheduled retry in a hidden
-      // tab PAUSES, and the query is left at status 'pending' even though it
-      // has already failed — so the user sits on a spinner that never resolves
-      // and the real cause sits unread in `fetchFailureReason`. A 403 is a
-      // permission answer and a 404 is often "no contact record"; neither will
-      // succeed on a second attempt, so failing fast is what makes the error
-      // reach the component at all. Only 5xx and transport failures retry.
-      retry: (count, error) => {
-        const status = (error as { status?: number })?.status
-        if (typeof status === 'number' && status >= 400 && status < 500) return false
-        return count < 1
-      },
-      // The other half: an offline verdict should not park a request either.
-      networkMode: 'always',
-    },
-    mutations: { retry: false, networkMode: 'always' },
-  },
-})
-```
-
-Read loading state from `isSuccess`, not `!isLoading && !error`. A query can sit pending with nothing in flight — paused, disabled, or never started — and inferring "no records" from that tells someone their data is gone when you never actually asked.
-
-**`src/auth.tsx` — session and token acquisition.** Expose `session`, `isBusy` (`inProgress !== 'none'` — mid-redirect is neither signed in nor signed out, and rendering a sign-in button there invites a second login on top of the one already running), `getToken`, `signIn`, `signOut`.
-
-`getToken` acquires silently on every call — MSAL caches and refreshes behind it, so it is cheap, and a long-lived tab never sends a stale token. It must catch **both** error types:
-
-```ts
-try {
-  const result = await instance.acquireTokenSilent({ scopes: [apiScope], account })
-  return result.accessToken
-} catch (err) {
-  // Silent renewal happens in a hidden iframe. When the browser blocks
-  // third-party cookies — increasingly the default — the iframe never
-  // completes and MSAL gives up with `timed_out`, which is a BrowserAuthError
-  // and NOT an InteractionRequiredAuthError. Escalating only on the latter
-  // leaves a signed-in user on loading skeletons forever, on every page, with
-  // no cure but signing out and back in by hand.
-  const timedOut = err instanceof BrowserAuthError && /timed_?out|timeout/i.test(err.errorCode)
-  if (err instanceof InteractionRequiredAuthError || timedOut) {
-    await instance.acquireTokenRedirect({ scopes: [apiScope], account })
-  }
-  throw err
-}
-```
-
-A full-page redirect isn't subject to the restriction that stopped the iframe, and when the IdP session is still alive it returns without prompting for anything.
-
-**A dev-token escape hatch, for when there is no Entra account to hand.** Worth having for development and demos — and it has to be unreachable in anything you ship:
-
-```ts
-// Dev-only twice over: import.meta.env.DEV is false in any built bundle, and
-// the token still has to be supplied explicitly. The API validates it, resolves
-// the contact, and applies exactly the same permissions and row-scoping, so
-// nothing downstream can tell the difference — which is precisely why it must
-// never be pointed at production.
-const demoToken = import.meta.env.DEV ? import.meta.env.VITE_DEMO_TOKEN : undefined
-if (demoToken) {
-  return {
-    session: { email: import.meta.env.VITE_DEMO_EMAIL },
-    isBusy: false,
-    getToken: async () => demoToken,
-    signIn: () => {},
-    signOut: () => {},
-  }
-}
-```
-
-The token is an HMAC key minted against a deployment whose `MCP_KEY_SECRET` you know — `npm run forge-key -- <email> <contact-guid> <scope>` in the API repo. It is a credential, so it goes in **`.env.development.local`**: gitignored by the template's `*.local` rule, and loaded only by the dev server. **Not `.env.local`** — Vite loads that file for `vite build` as well, so a production build on that machine has the token in hand. Never `.env`, never a commit, and never a token for a production deployment.
-
-### Contact resolution — the 404 to design for
-
-The API resolves the Dataverse contact from the token's **lowercased `email` claim**, matched against `contact.emailaddress1`. Not `oid`, not `sub`. An account whose email has no matching contact authenticates perfectly, gets a valid token, and then 404s on every `me` route.
-
-This is a routine outcome with a real IdP, it says nothing is wrong with the user's credentials, and the fix is a different account rather than anything they can retry. Render it as its own thing:
-
-```tsx
-// A 404 here means the token was fine but no Dataverse contact carries that
-// email. Worth naming rather than showing a generic failure.
-const noContact = (error as { status?: number } | null)?.status === 404
-{error && noContact && <NoContactNotice email={session?.email} />}
-```
-
-`NoContactNotice` should say which email they're signed in as, suggest they may have used a different address, and offer `signOut` as "sign in as someone else".
-
-If tokens carry no `email` claim at all, that is an API-side fix, not a frontend one — either add `email` as an optional access-token claim on the **API** app registration (Token configuration → Add optional claim → Access → `email`), or set `{SCOPE}__OIDC_EMAIL_CLAIM=preferred_username` on the API deployment. Tell the user which; don't work around it in the SPA. Prefer the first. The API takes whatever the claim says as the caller's identity, with no check that the address was verified — and when the configured claim is missing it falls back to `email`, then `preferred_username`, then `emails[]`. Every claim on that chain should be one the identity provider has verified and the user cannot edit.
-
-### Security — what the generated code must not do
-
-The API enforces row scoping, permissions and column write rules on every request, whatever the browser does. The portal can't leak more than the scope allows, and hiding things in the UI protects nothing. What the API can't protect is the page itself. Script that gets into the page *is* the signed-in citizen: it can call the API with their token and every permission they hold. Each rule below closes off one route to that, or a mistake the server can't catch.
-
-**Use the tier the user chose, and never widen it to fix something.** `client.me` unless they asked for a team or admin view. An empty `me` list or a 404 is a join or contact problem (see *Contact resolution* above, and step 5). Switching to `client.team` or `client.all` either gets a 403, or shows the citizen everyone's rows once someone grants the permission to make the 403 go away. Never ask for an `:all` grant to make a citizen portal work.
-
-**Render API text as text.** `{value}` in JSX escapes, and that covers almost everything. But Dataverse holds HTML in places — email bodies, rich-text notes, knowledge articles — written by staff, by citizens, and by anyone who has emailed the organisation. Where the formatting really matters, sanitise with DOMPurify, which works from an allow-list. A hand-written filter that strips `<script>` misses dozens of other ways in:
-
-```tsx
-import DOMPurify from "dompurify";
-
-// The one acceptable dangerouslySetInnerHTML: sanitised, in one component, so a
-// reviewer can find every place HTML from the API reaches the page.
-export function SafeHtml({ html }: { html: string | undefined }) {
-  return <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html ?? "") }} />;
-}
-```
-
-A link built from a field gets its scheme checked first:
-
-```ts
-// https, mailto and tel only — a "javascript:" website field is a script.
-export function safeHref(url: string | undefined): string | undefined {
-  try {
-    return url && ["https:", "mailto:", "tel:"].includes(new URL(url).protocol) ? url : undefined;
-  } catch {
-    return undefined;
-  }
-}
-```
-
-**Check route params before they reach the SDK.** `/case/:id` comes from the address bar, and the SDK puts an id into the request path exactly as given, with the citizen's token on the request. Accept GUIDs only:
-
-```ts
-const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-if (!id || !GUID.test(id)) return <NotFound />;
-```
-
-Likewise `fetchPage`: hand it the `page.next` the API returned and nothing else. SDK 1.24.0 and later refuse a URL off the API's origin; older versions send the bearer token to whatever URL they are given.
-
-**Nothing secret in `VITE_*`.** Vite inlines every `VITE_` variable the code reads into the bundle every visitor downloads. Read each one by name (`import.meta.env.VITE_API_SCOPE`): a dynamic `import.meta.env[name]` makes Vite inline the whole set, used or not. The admin connection key, MCP keys, service-principal secrets and Web PubSub or SignalR access keys never belong in a single-page app's environment. If a feature needs one, it needs a server.
-
-**Citizens see a friendly message, not the API's.** `ApiError.message` is the server's own text: written for developers, naming permissions and echoing the request back. (From API 1.24.0, Dataverse's raw error text is replaced by a generic message and a correlation id; older deployments pass it on.) Map on status for the screen, and log the error itself where you catch it:
-
-```ts
-// What a citizen reads. The no-contact 404 gets NoContactNotice instead (above).
-export function friendlyError(err: unknown): string {
-  const { status, code } = (err ?? {}) as { status?: number; code?: string };
-  // Stable codes (SDK 1.27.0+) say why a signed-in person can't get in at all.
-  if (code === "contact_not_enabled") return "Your account isn't set up for online access yet. Please contact us.";
-  if (code === "access_withdrawn") return "Your access has been withdrawn. Please contact us.";
-  if (status === 403) return "You don't have access to this.";
-  if (status === 404) return "We couldn't find that.";
-  return "Something went wrong. Please try again.";
-}
-```
-
-**Files: link on click, never inline.** A note's attachment and an email's attachments come through `client.me.files(table, id)` (names, types, sizes) and `client.me.fileLink(table, id, fileId)`, which returns a URL that works for a few minutes. Request the link in the click handler and navigate to it (`window.location.assign`). Don't prefetch it, cache it (TanStack Query included), log it or send it to analytics: until it expires, anyone holding it can download the file. Never `fetch` a file into the page, or turn it into a `blob:` or `data:` URL to preview it: an HTML or SVG attachment would then run as the portal. Never `select` `documentbody` or `body`. For an email, render its `description` with `SafeHtml`.
-
-**Realtime events are a reason to refetch, not data.** An event's `recordId` says something changed. It doesn't say this citizen may see it. Invalidate the matching queries and let the scoped route answer; never render from the event.
-
-**Query keys carry identity.** With a company switcher (`withCompany`), put the selected company id in every query key, or the cache shows one company's rows under another's name until the refetch lands. On sign-out, clear what the app stored itself (a remembered company, preferences) as well as letting `logoutRedirect` clear MSAL's cache. Don't persist the query cache to storage: on a shared computer, that is the previous person's data.
-
-**Hiding a button is not a permission.** Hiding what the API would refuse anyway is good UX. Hiding something the API would *allow* is a hole waiting for anyone with `curl`. Staff and admin features don't belong in a citizen portal behind an email check; they belong in a separate app, with access granted per person.
-
-**No session replay or analytics on signed-in pages without consent, and never an email address as the identifier.** Session replay records what is on screen, and in a portal that is personal data.
-
-**A CAPTCHA in the page doesn't protect a public endpoint.** If the scope has a `publicCreate` route, anyone can call it without going through the portal. Rate limiting belongs at the edge, in front of the API: tell whoever runs the deployment.
-
-Before anyone else uses the portal, set the response headers and run the checks in `references/security.md` (relative to this skill's directory). The `review-portal` skill in this plugin runs the same review against the code, and is the one to reach for on a portal this skill didn't generate.
-
-### Code quality — the scaffolded code must teach
-
-The generated code is the developer's first contact with the SDK and the API. Every file should make them feel like they already know how to extend it. This means:
-
-**Comment every SDK call** — not what it does (they can read code), but *why* this pattern and *what else they could do*. Match the query syntax in these examples exactly — `orderBy` and `filter` are objects, not strings:
-
-```ts
-// Fetch cases for the logged-in user. client.me automatically scopes
-// queries to records linked to the authenticated contact.
-// Switch to client.team for account-wide access, or client.all for admin.
-// QueryOptionsFor<CaseField> checks every field name against the generated
-// schema, so a typo fails `npm run typecheck` instead of returning a 400.
-const options: QueryOptionsFor<CaseField> = {
-  select: ["incidentid", "ticketnumber", "title", "statuscode"],
-  orderBy: { field: "modifiedon", direction: "desc" },
-  top: 50,
-  // Add filters like this. Choice values come from the generated consts,
-  // not magic numbers:
-  // filter: { field: "statuscode", operator: "eq", value: CaseStatuscode.InProgress },
-  //
-  // Or combine multiple — an ARRAY of conditions plus filterLogic.
-  // There is no { and: [...] } wrapper:
-  // filter: [
-  //   { field: "prioritycode", operator: "eq", value: CasePrioritycode.High },
-  //   { field: "statecode", operator: "eq", value: CaseStatecode.Active },
-  // ],
-  // filterLogic: "and",   // "and" is the default; "or" is the alternative
-};
-const cases = await client.me.list<Case>("case", options);
-```
-
-**Show the next move in comments** — every service function should hint at what the developer will want to do next:
-
-```ts
-export async function createCase(client: DataverseClient, input: CaseCreateInput) {
-  // Creates a case auto-bound to the caller's contact (via createDefaults
-  // in the table schema). That is why CaseCreateInput has no customerid:
-  // the generator leaves auto-bound and read-only columns out.
-  //
-  // To attach a note after creating:
-  //   await createCaseNote(client, { incidentid: result.incidentid, notetext: "..." });
-  return client.me.create<Case>("case", input);
-}
-```
-
-**Include working examples in hook files** — show loading, error, empty states, refresh and paging. Every hook is TanStack Query; `useState` + `useEffect` fetching is not an option here, and a mutation invalidates rather than hand-patching the cache. A list hook is `useInfiniteQuery`, because the API never returns more than 100 rows at a time:
-
-```ts
-import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-
-export function useCases() {
-  const client = useDataverseClient();
-  const query = useInfiniteQuery({
-    // The key is the cache identity AND what mutations invalidate. Keep the
-    // table name first and the view second, so ['case'] invalidates every view.
-    queryKey: ["case", "list"],
-    // ApiError carries .status and .message straight from the API response,
-    // so the component can branch on 404 (no contact) vs 403 (no permission).
-    //
-    // The first page comes from list(); every later one from fetchPage() with
-    // the page.next URL the API returned. That URL keeps the cursor, select,
-    // filter and orderBy, so never rebuild it or count rows with skip.
-    queryFn: ({ pageParam }) =>
-      pageParam ? fetchCasesPage(client, pageParam) : fetchCases(client),
-    initialPageParam: null as string | null,
-    // page.next is null on the last page, which ends the paging.
-    getNextPageParam: (last) => last.page.next ?? null,
-  });
-
-  return {
-    cases: query.data?.pages.flatMap((p) => p.data) ?? [],
-    // Drive a "Load more" button with these.
-    hasMore: query.hasNextPage,
-    loadMore: query.fetchNextPage,
-    isLoadingMore: query.isFetchingNextPage,
-    // `isSuccess`, not `!isLoading && !error` — see the note above. Only
-    // isSuccess means the API answered, and only then is an empty list true.
-    isSuccess: query.isSuccess,
-    isPending: query.isPending,
-    // Background refetch of data already on screen — show a subtle indicator,
-    // not the loading skeleton.
-    isRefreshing: query.isFetching && !query.isPending && !query.isFetchingNextPage,
-    error: query.error,
-    refresh: query.refetch,
-  };
-}
-
-// Writes go through useMutation. Invalidate on success rather than seeding the
-// cache from the response: create and PATCH responses come back with no expand,
-// so writing one into an expanded record's cache entry blanks the joined names.
-export function useCreateCase() {
-  const client = useDataverseClient();
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (input: CaseCreateInput) => createCase(client, input),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["case"] });
-    },
-  });
-}
-```
-
-**Components should be a starting point, not a dead end.** Include TODO comments that map out the obvious next features:
-
-```tsx
-// TODO: Let the citizen edit the description — a useMutation calling
-//       updateCase(client, id, { description }), invalidating ['case'] on
-//       success. Status and priority are readOnly in the schema: staff change
-//       those, and the API silently drops them from a citizen's PATCH.
-//
-// TODO: Add search — use the filter option:
-//       filter: { field: "title", operator: "contains", value: searchTerm }
-```
-
-**Types are generated, so document them where they are used.** `dataverse.generated.ts` already carries each column's display name and choice values as JSDoc, so hovering a field in the editor shows them. Do not add a `types/` folder that restates it. Put the explanation in the service and component comments, where it says why this screen picks these columns:
-
-```ts
-import type { Case } from "../dataverse.generated";
-
-// The list only needs these four columns. Pick from the generated row type
-// rather than declaring a second interface that drifts from the schema.
-// statuscode_label comes back with every choice column, already translated.
-export type CaseRow = Pick<Case, "incidentid" | "ticketnumber" | "title" | "statuscode_label">;
-
-// An expand adds a nested object the generated row type doesn't describe.
-// Extend the row type for that call only:
-export type CaseWithContact = Case & {
-  customerid_contact?: { fullname?: string; emailaddress1?: string };
-};
-```
-
-The goal: a developer reads the generated code for 10 minutes and thinks "I know exactly how to add the next feature."
-
-### SDK usage — the only acceptable pattern
-
-```ts
-// src/lib/client.ts — one client, memoised on getToken so hook deps stay stable.
-import { createClient, type DataverseClient } from "@truenorth-it/dataverse-client";
-import { useMemo } from "react";
-import { API_BASE_URL, API_SCOPE } from "../env";
-import { useAuth } from "../auth";
-
-export function useDataverseClient(): DataverseClient {
-  // getToken comes from AuthProvider — it wraps acquireTokenSilent and
-  // escalates to a redirect when the IdP needs to see the user. Nothing here
-  // touches MSAL directly, so swapping the IdP is a one-file change.
-  const { getToken } = useAuth();
-  return useMemo(
-    () => createClient({ baseUrl: API_BASE_URL, scope: API_SCOPE, getToken }),
-    [getToken],
-  );
-}
-
-// src/services/caseApi.ts — read
-import type { DataverseClient, QueryOptionsFor } from "@truenorth-it/dataverse-client";
-import type {
-  Case,
-  CaseField,
-  CaseCreateInput,
-  CaseUpdateInput,
-  Casenotes,
-  CasenotesField,
-} from "../dataverse.generated";
-
-// Typed options: "titel" here is a compile error, not a runtime 400.
-// top is the page size: 20 if left out, and 100 at most (more is cut to 100
-// without an error). It is never "all rows" — useCases pages through the rest.
-const CASE_LIST: QueryOptionsFor<CaseField> = {
-  select: ["incidentid", "ticketnumber", "title", "statuscode"],
-  orderBy: { field: "modifiedon", direction: "desc" },
-  top: 50,
-};
-
-// The first page.
-export async function fetchCases(client: DataverseClient) {
-  return client.me.list<Case>("case", CASE_LIST);
-}
-
-// Every later page. `next` must be the page.next the API returned: fetchPage
-// sends the token with it, and refuses a URL off the API's origin.
-export async function fetchCasesPage(client: DataverseClient, next: string) {
-  return client.me.fetchPage<Case>(next);
-}
-
-// Every row, for a bounded set only (an export, a short dropdown). eachPage
-// follows page.next until it runs out. Don't use it to fill a list screen.
-export async function fetchAllCases(client: DataverseClient) {
-  const rows: Case[] = [];
-  for await (const page of client.me.eachPage<Case>("case", CASE_LIST)) {
-    rows.push(...page.data);
-  }
-  return rows;
-}
-
-export async function fetchCase(client: DataverseClient, id: string) {
-  return client.me.get<Case>("case", id);
-}
-
-// src/services/casenoteApi.ts — fetch notes for a case
-export async function fetchCaseNotes(client: DataverseClient, caseId: string) {
-  const options: QueryOptionsFor<CasenotesField> = {
-    filter: { field: "incidentid", operator: "eq", value: caseId },
-    orderBy: { field: "createdon", direction: "desc" },
-  };
-  return client.me.list<Casenotes>("casenotes", options);
-}
-
-// src/services/fileApi.ts — download a note's attachment (or an email's).
-// Ask for the link on click and navigate at once: it expires in minutes, so it
-// never goes in a query cache. The browser downloads it from storage as an
-// attachment; nothing is fetched into the page.
-export async function downloadFile(client: DataverseClient, table: string, id: string, fileId: string) {
-  const link = await client.me.fileLink(table, id, fileId);
-  window.location.assign(link.url);
-}
-
-// src/services/caseApi.ts — write. CreateInput/UpdateInput hold only the
-// writable columns, so setting statuscode or customerid fails to compile.
-export async function createCase(client: DataverseClient, input: CaseCreateInput) {
-  return client.me.create<Case>("case", input);
-}
-
-export async function updateCase(
-  client: DataverseClient,
-  id: string,
-  patch: CaseUpdateInput,
-) {
-  return client.me.update<Case>("case", id, patch);
-}
-```
-
-Tier selection follows the user's `TIER` from the prompt:
-- `me` → `client.me.list/get/create/update` — caller's records only (needs `contactJoinPath`)
-- `team` → `client.team.*` — account-linked records (needs `teamJoinPath`)
-- `all` → `client.all.*` — admin-tier, unfiltered
-
-`client.me` is the only tier with `create`. There is no DELETE on the data tier at all.
-
-**Custom APIs: call them on the portal's tier — `client.me.invokeFunction` / `invokeAction`** (SDK 1.26.0 and later; `team` likewise). They call `/{tier}/actions/{name}[/{recordId}]` with the citizen's token and selected company, and the API checks the tier's `:invoke` permission and that the record is the citizen's. **The record goes in `recordId`, never in the body** — the API checks the record in the URL and writes it into its own parameter itself; a body naming a different record is a 400. A caller-scoped API ("my bookings") takes no `recordId`: the API fills in who's asking. `client.public.invokeFunction` / `invokeAction` send no token, so they only reach APIs published on the `public` tier. A 404 `not available on the me tier` means the scope hasn't published the API there — ask for that, never for the API to be made public:
-
-```ts
-// An action (POST) on the citizen's own case — the case in recordId,
-// parameters in the JSON body.
-await client.me.invokeAction("close-incident", {
-  recordId: caseId,
-  body: { IncidentResolution: { subject: "Resolved online" }, Status: 5 },
-});
-
-// A caller-scoped function (GET) — no recordId; parameters in the query string.
-const { data } = await client.me.invokeFunction<{ Bookings: string }>("my-upcoming-bookings");
-
-// Anonymous, read-only data on the public tier.
-const slots = await client.public.invokeFunction<{ result: Slot[] }>("expand-calendar", {
-  recordId: calendarId,
-  params: { Start: start, End: end },
-});
-```
-
-Two things the API's definition can do that change what the portal sends (read them off `openapi.json` for the action, not off the Dataverse API's own parameter list):
-
-- **`recordId` may be a reference number** (API 1.29.0+). If the definition's target has `recordKey` (e.g. `ticketnumber`), pass the case reference the citizen sees, `recordId: "CAS-01234-X1Y2"`, or the GUID. The server finds the case, checks it's theirs and writes the right value into the API.
-- **Fixed parameters aren't the portal's to send** (API 1.30.0+). A parameter in the definition's `fixedParameters` (a staff-only flag such as `IsPrivate`) is always sent by the server and anything the portal sends is overwritten, so leave it out of `body` / `params`. It doesn't appear in the action's request schema. A parameter with a `default` may be left out too. Never add a UI control for a fixed parameter.
-
-For picklist labels, the SDK automatically includes `<field>_label` alongside `<field>` in list responses when the schema declares the field as `choice`. Use those fields directly in the UI — no extra lookup needed.
-
-For filters:
-```ts
-// Single-field filter. Choice values come from the generated consts:
-// CaseStatuscode.InProgress, not 1.
-const active = await client.me.list<Case>("case", {
-  filter: { field: "statuscode", operator: "eq", value: CaseStatuscode.InProgress },
-});
-
-// Composite filter — an array, combined by `filterLogic`.
-// `QueryOptions.filter` is `FilterCondition | FilterCondition[]`; there is no
-// `{ and: [...] }` shape, and passing one type-errors.
-const urgent = await client.me.list<Case>("case", {
-  filter: [
-    { field: "prioritycode", operator: "eq", value: CasePrioritycode.High },
-    { field: "statecode", operator: "eq", value: CaseStatecode.Active },
-  ],
-  filterLogic: "and",   // default; use "or" for the alternative
-});
-```
-
-Never construct OData strings by hand. The SDK builds `$filter` from the structured object.
+- **The rules in `references/code-security.md` (*Security — what the generated code must not do*) are non-negotiable too.** In short: the tier the user chose and no wider; API text rendered as text; route params checked; nothing secret in `VITE_*`; citizens shown friendly errors, not the API's.
 
 ### 8. Environment — and the one thing you must ask for
 
@@ -1117,75 +359,31 @@ Use the `access` family throughout. `contact-admin auth0 grant-access` still run
 
 If `access grant` returns `found: false`, there is no Dataverse **contact** with that email address. That is a Dataverse problem, not an Entra one: create the contact record (with `emailaddress1` set to exactly that address), then re-run. Signing the person up in Entra does not create a contact.
 
-## Worked examples
+## Worked examples and failure modes
 
-### "build me a case portal using https://api.dataverse-contact.tnapps.co.uk"
+- **Worked examples** — a case portal with and without a named scope, a bookings
+  portal in a new scope, an ambiguous contact join, a brand-new empty table:
+  `references/examples.md`.
+- **When something fails** — `AADSTS50011`, a blank page, 401 / 403 / 404, a
+  write that doesn't stick, a typecheck error on a field the API has, a list
+  stuck at 20 rows: read `references/troubleshooting.md` before guessing.
 
-- `API_URL` = provided; `TARGET_SCOPE` not specified.
-- `.well-known` returns `idp_provider: entra-external-id` → Entra path, tenant parsed from `idp_issuer`.
-- `contact-admin scopes list` returns: default, case-portal, ...
-- Skill asks: "This API has scopes: default, case-portal. Use one of those, or create a new scope?"
-- User: "default".
-- `contact-admin login --scope default` — stores key.
-- `contact-admin tables list` finds existing `case` + `casenotes` — no setup-table needed.
-- Scaffolds frontend, then asks for the SPA client ID. One prompt, one browser click, one GUID, done.
+## Reference files
 
-### "build me a bookings portal"
+All paths are relative to this skill's directory.
 
-- `API_URL` = default; no scope in prompt.
-- `contact-admin scopes list` returns: default.
-- Skill asks: "Put this in `default` or create a new scope `bookings`?"
-- User: "new scope called `bookings-pilot`".
-- `contact-admin login --scope bookings-pilot` — scope auto-created on approval.
-- `contact-admin setup-table msdyn_bookableresourcebooking --no-publish` — scaffolds and saves a draft. The skill trims `fields` to what a booking list and detail need, marks status, owner and the resource lookup `readOnly`, then `tables save-draft` and `tables publish`.
-- `tables test-query <route> --tier me --contact-id <a GUID matching nobody>` returns nothing, so the join filters.
-- Scaffolds portal with `VITE_API_SCOPE=bookings-pilot`, so the SDK targets `/api/v2/bookings-pilot/`. The Entra API scope is unchanged — one `api://<api-app-id>/access_as_user` token is valid across every scope on the deployment that doesn't override the OIDC settings. The flip side: users of other portals on the deployment hold tokens `bookings-pilot` also accepts, which is one more reason its baseline holds nothing ending in `:all`.
-
-### "build me a case portal in scope case-portal"
-
-- Scope explicitly named.
-- `contact-admin login --scope case-portal` — scope auto-created on approval if it doesn't exist.
-- `tables list` shows neither route, so Path A: publish `CASE_SCHEMA` then `CASENOTES_SCHEMA` exactly as written in step 4. Not the `case` / `casenotes` in `default` — those leave status, priority and the contact link writable.
-- Before you publish: the reference schemas pass, apart from the notes question. The skill asks whether staff-written notes on a case may be visible to the customer, and says plainly that they will be unless the organisation marks customer-facing notes.
-- `tables test-query case --tier me --contact-id <a GUID matching nobody>` and the same for `casenotes` both return nothing.
-- Do NOT also publish a generic `annotation` route — `casenotes` is the filtered alias that should be used.
-- Scaffolds frontend. In step 10 the starter grant is `case`, `case:write`, `case:create`, `case:lookup`, `casenotes`, `casenotes:create` — no `casenotes:write`.
-
-### Ambiguous contact join — confirmation flow
-
-- User: "build me a portal for the `tn_project` table in scope `pm`".
-- Skill hits step 4.2: `scaffold_table({ entity: "tn_project" })` returns `joinAnalysis.contactJoinAmbiguous: true` because the entity has `ownerid → contact` and `tn_projectleadid → contact`.
-- Step 4.3: `sample_data({ entity: "tn_projects", top: 3 })` returns 3 rows. Skill pulls out the `tn_projectleadid` values (the scaffolder's pick) — they look populated.
-- Step 4.4: skill asks in one sentence: "I found two contact joins on `tn_project`: `tn_projectleadid → contact` and `ownerid → contact`. I'm picking `tn_projectleadid`. Sample rows show `tn_projectleadid` = [Sam, Jo, Priya]. Confirm, or say which to use."
-- User: "use ownerid". Skill mutates `schema.contactJoinPath` to the `ownerid` candidate's path, takes the schema through **Before you publish** (trim `fields`, `readOnly` on status, owner and the join columns), then `save_table_draft` + `publish_tables`, then the negative `test-query`.
-
-### Brand-new empty table
-
-- User: "build me a portal for `tn_expense` in scope `expenses`".
-- Steps 4.1 + 4.2 run normally; `joinAnalysis.contactJoinAmbiguous: false` (only one direct lookup).
-- Step 4.3: `sample_data` returns `count: 0`. Skill prints: "No rows in `tn_expense` yet — skipping data-level join verification. The join was chosen from metadata only; double-check once real data lands."
-- Step 4.4 fast-path: "Using `tn_contactid` → contact (metadata only — empty table)." Continues without asking.
-
-## Failure modes worth recognising
-
-| Symptom | Cause |
-|---|---|
-| `AADSTS50011` at the IdP, nothing in the browser console | the redirect URI isn't registered, or is registered with a trailing slash, or sits under the Web platform instead of Single-page application. Vite on a shifted port does this too |
-| Blank white page, no error anywhere | something threw before React mounted — almost always an unset `VITE_ENTRA_*`. `assertEntraConfig()` must be called inside `bootstrap()`, and the catch must paint into `#root` |
-| Every request 401s straight after a successful sign-in, fixed by a page reload | no active account — the `LOGIN_SUCCESS` event callback is missing |
-| Signed-in user stuck on loading skeletons forever, every page | `acquireTokenSilent` timed out in a cookie-blocked iframe and only `InteractionRequiredAuthError` was caught |
-| `401` from the API with a token that looks fine | issuer mismatch — decode at jwt.ms and compare `iss` to the API's `OIDC_ISSUER` |
-| `404 "No Dataverse contact found"` on `/me` for a user who signed in fine | the token's email has no matching `contact.emailaddress1`. Render `NoContactNotice`, don't treat it as an error |
-| `403` on a route that works for someone else | authenticated but lacks the permission. `contact-admin access show <email>`, then grant — and wait 5 minutes for the cache |
-| `403` on every route, for everyone, on a scope created in this session | it has no published baseline, so it grants nothing — which is correct until someone decides what the baseline is (step 10). Don't paper over it with `all` |
-| A write returns 200 but a field never changes | the field is `readOnly` in the schema; the API drops it silently rather than erroring |
-| The `test-query` with a contact id that matches nobody returns rows | the route isn't filtering by caller — usually a FetchXML template without `{{contactid}}`, which replaces the join path. Fix it before anyone signs in |
-| On a shared PC the next person lands in the last person's session | nobody signed out. Closing the tab doesn't end the identity provider's session; only `logoutRedirect` does. Keep sign-out one click away, and use `sessionStorage` so the app's own tokens end with the tab |
-| Env change on Vercel with no effect | Vite inlined `VITE_*` at build time. Redeploy |
-| `typecheck` fails with a field name the API definitely has | `dataverse.generated.ts` is older than the scope. `npm run generate:types` and commit the diff |
-| `generate:types` fails with `ENOENT` on the output path | `generate` won't create directories. The output path must sit in a folder that exists (`src/`) |
-| `TS2345 … Index signature for type 'string' is missing` on `create` / `update` | SDK 1.24.2 or older rejects a generated `CreateInput` interface. Upgrade to latest (1.25.0+) |
-| A list shows exactly 20 (or 100) rows and nothing past them | It calls `list` once. That is one page: 20 by default, 100 at most. Page with `useInfiniteQuery` + `fetchPage(page.next)` |
+| File | Read at | Holds (section names used elsewhere in italics) |
+|---|---|---|
+| `references/discovery.md` | Step 0 | Discovery shell, `.well-known` field map, the Auth0 warning |
+| `references/tables.md` | Step 4 | Paths A / B / C, the case and case-notes schemas, *Before you publish* |
+| `references/scaffold.md` | Step 7 | *The house stack*, scaffold commands, generated types, file layout |
+| `references/auth.md` | Step 7 | *Entra wiring — the four files that must be right*, *Contact resolution — the 404 to design for* |
+| `references/sdk-usage.md` | Step 7 | *SDK usage — the only acceptable pattern* |
+| `references/code-quality.md` | Step 7 | *Code quality — the scaffolded code must teach* |
+| `references/code-security.md` | Step 7 | *Security — what the generated code must not do* |
+| `references/security.md` | Before go-live | Response headers (CSP) and go-live checks |
+| `references/examples.md` | Any time | *Worked examples* |
+| `references/troubleshooting.md` | Steps 5, 9, or on any failure | *Failure modes worth recognising* |
 
 ## Dependencies
 
