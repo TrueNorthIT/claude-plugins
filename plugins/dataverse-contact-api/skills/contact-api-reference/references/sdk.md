@@ -248,6 +248,8 @@ tell apart. Branch on it, never on the message text:
 |---|---|---|
 | `contact_not_enabled` | 403 | The email matches a contact, but the contact fails the scope's `contactFilters` — not set up for online access |
 | `access_withdrawn` | 403 | Every contact for the email is inactive |
+| `validation_failed` | 400 | A write broke the route's write rules (API 1.58.0). `e.body.errors` lists `{ field, rule, message }` for every problem |
+| `upload_library_not_found` / `upload_library_ambiguous` | 409 | An upload with no preset library found no folder, or several, in the libraries the route's `upload.allowed.library` allows (API 1.58.0) |
 
 Most errors carry no `code`; fall back to `e.status`.
 
@@ -321,7 +323,7 @@ For each table it emits:
 |---|---|
 | `Case` | The row: `list<Case>`, `get<Case>`. Choice columns come with their `_label` |
 | `CaseField` | Column-name union. `QueryOptionsFor<CaseField>` checks `select`, `filter.field` and `orderBy.field` at compile time, so a typo can't become a runtime 400 |
-| `CaseCreateInput` / `CaseUpdateInput` | Writable columns only. Read-only ones and the lookups `createDefaults` binds are left out |
+| `CaseCreateInput` / `CaseUpdateInput` | Writable columns only. Read-only ones and the lookups `createDefaults` binds are left out. Write rules (API 1.58.0) shape them too: a `fixed` field is left out, an `allowed` field with exact values is their union (`casetypecode?: 1 \| 2`), and a `required` field with no `default` is non-optional in CreateInput |
 | `CaseStatuscode`, … | A const object per choice column (`CaseStatuscode.InProgress`), so filters don't use magic numbers |
 
 Names come from the route, not the entity: route `incident` gives `Incident`,

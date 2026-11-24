@@ -584,8 +584,10 @@ if (args.schema) {
             add("schema-lookup-unchecked", "medium", `${where}: writable lookup ${fld.name} has no lookupTable, so writes to it aren't checked against the caller's rows`, null, null, null);
           }
         }
-        const status = ["statecode", "statuscode", "prioritycode"].filter(writable);
-        if (status.length) add("schema-status-writable", "low", `${where}: ${status.join(", ")} writable — confirm citizens should set these`, null, null, null);
+        // A write rule (API 1.58.0: allowed or fixed) already limits what a caller may send there.
+        const unruled = (n) => writable(n) && !Array.isArray(byName.get(n).allowed) && byName.get(n).fixed === undefined;
+        const status = ["statecode", "statuscode", "prioritycode"].filter(unruled);
+        if (status.length) add("schema-status-writable", "low", `${where}: ${status.join(", ")} writable with no allowed or fixed rule — confirm citizens should set any value here`, null, null, null);
         if (Array.isArray(t.defaultFields) && t.defaultFields.length === 0) {
           add("schema-empty-default-select", "high", `${where}: default select is empty, which the API treats as no projection`, null, null, null);
         }

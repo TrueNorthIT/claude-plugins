@@ -103,6 +103,45 @@ export function useCreateCase() {
 }
 ```
 
+**Forms follow the write rules.** From API 1.58.0 a route can hold a field to
+`fixed`, `default`, `allowed`, `required`, `minLength`/`maxLength` and
+`min`/`max`. The server enforces them; the form's job is to make a refusal
+rare and readable. The generated types already carry them: a `fixed` field is
+missing from `CaseCreateInput` (the API writes it), an `allowed` field is a
+union (`casetypecode?: 1 | 2`), and a `required` field with no default is
+non-optional. Build the form from that, and from `/schema` for the lengths:
+
+```tsx
+// casetypecode is `1 | 2` in CaseCreateInput: the scope allows only Question
+// and Problem, so offer only those. caseorigincode isn't in the input at all —
+// the API writes it on every create (a `fixed` rule) — so there's no field for it.
+<select id="casetypecode" value={form.casetypecode ?? 1} onChange={(e) => set("casetypecode", Number(e.target.value) as 1 | 2)}>
+  <option value={CaseCasetypecode.Question}>Question</option>
+  <option value={CaseCasetypecode.Problem}>Problem</option>
+</select>
+
+// title is required with maxLength 200 in /schema: say so in the input, so the
+// browser catches it before the API has to.
+<input id="title" required maxLength={200} value={form.title} onChange={(e) => set("title", e.target.value)} />
+```
+
+When the API still refuses (another tab changed the rules, or a value the form
+couldn't check), it answers 400 `validation_failed` with one entry per field.
+Show each next to its field with `fieldErrors` (`references/code-security.md`):
+
+```ts
+const create = useCreateCase();
+// …
+create.mutate(input, {
+  onError: (err) => setErrors(fieldErrors(err)), // { title: "Enter a title.", … }
+});
+```
+
+Never make the form the only place a rule lives. A dropdown that hides an
+option or a hidden input that always sends a value is UX; if the value must
+hold, it's a write rule in the scope (Terraform), and a portal without it is a
+finding in `review-portal`.
+
 **Components should be a starting point, not a dead end.** Include TODO comments that map out the obvious next features:
 
 ```tsx

@@ -64,7 +64,7 @@ For the URL, tier, and project name: state what you assumed in one sentence befo
 
 ## Version check
 
-**Expected plugin version: 0.23.0**
+**Expected plugin version: 0.24.0**
 
 Before doing any work, verify the installed plugin version. Read the plugin manifest at `../../.claude-plugin/plugin.json` (relative to this skill file) using the Read tool:
 
@@ -253,6 +253,7 @@ Non-negotiable rules:
 - **Always use the `@truenorth-it/dataverse-client` SDK. Never hand-roll fetch, never build OData query strings, never set the `Authorization` header yourself.** The SDK's scope clients (`client.me`, `client.team`, `client.all`) handle auth, query encoding, pagination, and error shapes. That includes custom APIs: `client.me.invokeFunction` / `invokeAction` (SDK 1.26.0 and later) call one on the `me` tier with the citizen's token, the record in `recordId` — see `references/sdk-usage.md`.
 - **Redirect flows only, never popup.** Popups get blocked, and on a phone a popup sign-in is worse than a redirect in every way. `loginRedirect`, `acquireTokenRedirect`, `logoutRedirect`.
 - **Every list pages.** A `list` call returns one page: 20 rows by default and never more than 100, because a larger `top` is cut to 100 without an error. A list screen that calls `list` once shows the first page and nothing else. Use `useInfiniteQuery`, following `page.next` with `fetchPage`, and give the screen a "Load more" button. Drain every page with `eachPage` only for a bounded set (a dropdown's options, an export), never for a screen that grows with the data. See `references/code-quality.md` for the hook.
+- **Forms follow the scope's write rules (API 1.58.0).** Offer only the `allowed` values, leave `fixed` fields out, mark `required` and lengths on the inputs, and show a `validation_failed` refusal by its fields with `fieldErrors`. A rule that must hold goes in the scope (Terraform), never only in the form. See *Forms follow the write rules* in `references/code-quality.md`.
 - **Every SDK call is typed from `dataverse.generated.ts`.** Reads pass the row type (`list<Case>`) and take `QueryOptionsFor<CaseField>`. Writes take `CaseCreateInput` / `CaseUpdateInput`, not `Partial<Case>`. Choice values come from the generated consts. No hand-written table interfaces, and no `as` casts on SDK results.
 - **The rules in `references/code-security.md` (*Security — what the generated code must not do*) are non-negotiable too.** In short: the tier the user chose and no wider; API text rendered as text; route params checked; nothing secret in `VITE_*`; citizens shown friendly errors, not the API's.
 

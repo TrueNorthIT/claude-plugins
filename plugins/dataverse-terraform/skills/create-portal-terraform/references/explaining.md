@@ -109,6 +109,9 @@ even when they are correct and intentional:
 | a request parameter with a `default` | Sent only when the caller leaves it out; the caller can still choose the value. If it's a flag the caller mustn't decide, it should be in `fixedParameters` instead |
 | a request parameter with `"unchecked": true` | Any record id the caller sends there reaches the API as sent |
 | a field without `read_only` | The citizen can set it, on create and PATCH — check that is intended for status, owner and identifier columns |
+| a field's `fixed` | Every create gets this value from the API, and no caller can change it. Say what it means in plain words ("every case from the portal is a Web case") |
+| a field's `allowed` / `default` / `required` / lengths / range | What a caller may write there. A `*` entry is a pattern; read it out ("any category starting Comp"). A status or category column a citizen can write with no rule means they can send any value |
+| `upload.allowed.library` | Which of a record's libraries a citizen's file can land in. Check it agrees with `filters`, or the uploader won't see their own file. A pattern never makes a folder; one exact name does |
 
 ## Explaining what an apply will do
 

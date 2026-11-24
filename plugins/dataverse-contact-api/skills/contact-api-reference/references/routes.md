@@ -213,6 +213,12 @@ POST /{tier}/{table}/{id}/documents/uploads/{uploadId}/complete         → the 
   goes to the record's first folder. **Every library needs the route's
   declared columns.** A fixed column missing there gives a 503 and the file is
   deleted again.
+- **Allowed libraries and folders (1.58.0):** `upload.allowed.library` /
+  `.folder`, names or `*` patterns. A signed-in upload (no preset library)
+  goes to the record's **one** folder in a matching library, not its first:
+  none is a 409 `upload_library_not_found`, several a 409
+  `upload_library_ambiguous`, answered at upload start. A folder is made only
+  for one exact name. `/schema` `documentsUpload.allowed` shows both lists.
 - A file never overwrites another (SharePoint renames a clash). Limits:
   `upload.maxBytes` (default 10 MiB, capped by the deployment), allowed
   `extensions`, and never executables.

@@ -51,11 +51,41 @@ export function friendlyError(err: unknown): string {
   // Stable codes (SDK 1.27.0+) say why a signed-in person can't get in at all.
   if (code === "contact_not_enabled") return "Your account isn't set up for online access yet. Please contact us.";
   if (code === "access_withdrawn") return "Your access has been withdrawn. Please contact us.";
+  // A write the scope's rules refused (API 1.58.0): show fieldErrors(err) by the fields instead.
+  if (code === "validation_failed") return "Please check the highlighted fields.";
   if (status === 403) return "You don't have access to this.";
   if (status === 404) return "We couldn't find that.";
   return "Something went wrong. Please try again.";
 }
 ```
+
+A write rule refusal (`code: "validation_failed"`) says which fields and which
+rule, in `err.body.errors`. Its `message` names the column (`"casetypecode" must
+be one of 1, 2`), so map on `field` and `rule` and write the words yourself:
+
+```ts
+import { ApiError } from "@truenorth-it/dataverse-client";
+
+// Field → what to show beside it. Your own words, keyed by the API's rule.
+export function fieldErrors(err: unknown): Record<string, string> {
+  if (!(err instanceof ApiError) || err.code !== "validation_failed") return {};
+  const words: Record<string, string> = {
+    required: "This is required.",
+    allowed: "Choose one of the options.",
+    maxLength: "This is too long.",
+    minLength: "This is too short.",
+    min: "This is too low.",
+    max: "This is too high.",
+    fixed: "This can't be changed.",
+  };
+  return Object.fromEntries((err.body?.errors ?? []).map((e) => [e.field, words[e.rule] ?? "Check this value."]));
+}
+```
+
+A 409 `upload_library_not_found` or `upload_library_ambiguous` on an upload
+means the record has no single folder the scope lets uploads use. It's a setup
+problem for the council, not the citizen: show "We can't take files for this
+right now" and log it.
 
 **Files: link on click, never inline.** A note's attachment and an email's attachments come through `client.me.files(table, id)` (names, types, sizes) and `client.me.fileLink(table, id, fileId)`, which returns a URL that works for a few minutes. Request the link in the click handler and navigate to it (`window.location.assign`). Don't prefetch it, cache it (TanStack Query included), log it or send it to analytics: until it expires, anyone holding it can download the file. Never `fetch` a file into the page, or turn it into a `blob:` or `data:` URL to preview it: an HTML or SVG attachment would then run as the portal. Never `select` `documentbody` or `body`. For an email, render its `description` with `SafeHtml`.
 

@@ -1,6 +1,6 @@
 ---
 name: create-portal-terraform
-description: Define, and explain, a Dataverse Contact API portal backend as Terraform — which tables are published as routes, which fields callers can read and write, how rows are scoped to the signed-in citizen, and the baseline permissions. Use when the user asks to create / write / generate Terraform for the portal API or for a scope, to codify or export an existing scope as Terraform, to import a scope into Terraform state, to provision a new scope with terraform apply, or to add a table / route / permission / custom API to an existing Contact API Terraform repo (e.g. "add the note API for the me route") — it discovers the scope's Dataverse tables, columns and custom APIs (binding, bound table, parameters) from the deployment rather than guessing them. Also use to explain, review, document or hand over an existing Contact API Terraform config — "what does this scope expose", "who can see X", "what will this apply do", reviewing a change for whether it widens access, or checking whether a scope is secure before go-live. Works against the public TrueNorthIT/dataversecontact provider.
+description: Define, and explain, a Dataverse Contact API portal backend as Terraform — which tables are published as routes, which fields callers can read and write, how rows are scoped to the signed-in citizen, and the baseline permissions. Use when the user asks to create / write / generate Terraform for the portal API or for a scope, to codify or export an existing scope as Terraform, to import a scope into Terraform state, to provision a new scope with terraform apply, or to add a table / route / permission / custom API to an existing Contact API Terraform repo, or to say what a field may be written as (a fixed value, allowed values, a default, required, a length or range) or which SharePoint library uploads go to (e.g. "add the note API for the me route") — it discovers the scope's Dataverse tables, columns and custom APIs (binding, bound table, parameters) from the deployment rather than guessing them. Also use to explain, review, document or hand over an existing Contact API Terraform config — "what does this scope expose", "who can see X", "what will this apply do", reviewing a change for whether it widens access, or checking whether a scope is secure before go-live. Works against the public TrueNorthIT/dataversecontact provider.
 ---
 
 # create-portal-terraform
@@ -288,10 +288,14 @@ this order:
    `team_join_step` if colleagues should see it. This is the security boundary;
    get it right before anything else. An ownerless child gets a reverse join
    through its parent, never `["all"]`.
-3. **What callers may see** — `fields` (with `read_only` on everything a
-   citizen must not PATCH) and `default_select`. Every column in `fields` can
-   be selected by anyone who can read the route, so declare only what the
-   portal uses.
+3. **What callers may see and write** — `fields` (with `read_only` on
+   everything a citizen must not PATCH) and `default_select`. Every column in
+   `fields` can be selected by anyone who can read the route, so declare only
+   what the portal uses. Where the brief limits **what** a citizen may write
+   (a fixed origin, a subset of statuses, a required title, the library an
+   upload lands in), add write rules (`fixed`, `allowed`, `default`,
+   `required`, lengths, range; `upload.allowed`) per *Write rules* in
+   `references/patterns.md`. Never leave that to the portal.
 4. **What callers may do** — the route's entry in `default_permissions`. That
    entry reaches every token the scope accepts, not just this portal's users:
    never `all`, nor any action ending in `:all` (`write:all`, `lookup:all`, `invoke:all`…).

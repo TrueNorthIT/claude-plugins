@@ -130,6 +130,43 @@ fields = {
 | `lookup_table` | For `lookup`: **route name** of the target table (an alias or the logical name also resolves). It is also what lets the API check, on `me` / `team` writes, that the row a caller points at is theirs — a writable lookup without it, or naming a route this scope doesn't publish, is written unchecked. |
 | `value_field` | For polymorphic lookups: the underlying OData value column. |
 | `bind_field` | For aliased fields: navigation property used for `@odata.bind` writes. Optional — if omitted the API derives it from the attribute's Dataverse SchemaName (e.g. `abc_project` → `abc_Project`). Needs v1.1.1+; older versions fail apply when a lookup omits it. |
+| `fixed`, `default`, `allowed`, `required`, `min_length`, `max_length`, `min`, `max` | **Write rules** (provider v1.12.0+, Contact API 1.58.0+). See *Write rules* below. |
+
+#### Write rules: what a caller may write to a field
+
+The server holds every write to the field to these, on REST, MCP and invite
+links, so a portal can't get round them. All optional; a field with none
+behaves as before.
+
+| Key | Type | Meaning |
+|---|---|---|
+| `fixed` | string | The API writes this value on every create. A caller may send only this value, and can't change it on update. Stands alone: no other rule beside it. |
+| `default` | string | Written on a create that leaves the field out. The caller may send another allowed value. |
+| `allowed` | list(string) | The values a caller may send. On a `string` field an entry may use `*` for any characters (`"Comp*"`), case ignored. Nothing else is special: no regex, no `?`. |
+| `required` | bool | A create must end with a value (sent, preset by an invite, or `default`). An update can't clear it. |
+| `min_length`, `max_length` | number | Text length, `string` fields only. |
+| `min`, `max` | number | Range, `number` fields only. |
+
+Values are written as strings, as in `documents.upload.columns`, and sent typed
+by the field's `type`: a `choice` takes the option's **value** (`"3"`, not its
+label), a `boolean` `"true"`/`"false"`, a `number` a number.
+
+```hcl
+fields = {
+  title          = { type = "string", description = "Case title", required = true, max_length = 200 }
+  caseorigincode = { type = "choice", description = "Origin", fixed = "3" }                          # Web
+  casetypecode   = { type = "choice", description = "Type", allowed = ["1", "2"], default = "1" }   # Question, Problem
+  estimate       = { type = "number", description = "Estimate", min = 0, max = 10000 }
+}
+```
+
+- **No rules on a `lookup`.** `create_default` binds a lookup to the caller.
+- **`fixed` may sit on a `read_only` field**: the caller can't send it, and the
+  API writes it. Every other rule needs a writable field.
+- **A wrong value is refused at save**: a `default` outside its own `allowed`,
+  a `*` on a choice, `min` above `max`, a choice value that isn't a whole number.
+- What a refused write looks like to a portal, and what `/schema` and the
+  generated types show, is in the `contact-api-reference` skill.
 
 ### Blocks
 
@@ -200,6 +237,7 @@ resource "dataversecontact_table" "case" {
       # columns = { ShowOnPortal = "true", Source = "Resident", folder = "Evidence", library = "Proof" }
       invites   = true                  # one-time upload links
       libraries = ["Evidence"]          # 1.48.0: the libraries an invite's library may be (not with a fixed library)
+      # allowed = { library = ["*-Shared-*"], folder = ["", "Photos*"] }  # 1.58.0: see below (not with libraries)
       # max_bytes  = 5242880
       # extensions = ["pdf", "jpg", "png"]
     }
@@ -227,10 +265,29 @@ resource "dataversecontact_permissions_sync" "this" {
   column missing in a library gives a 503 there and the file is deleted again.
 - A fixed `folder` stops a caller sending their own. A fixed `library` can't
   sit beside `libraries`: the API refuses the save.
+- **`upload.allowed` (provider v1.12.0+, Contact API 1.58.0+)** says which of
+  the record's libraries and folders an upload may use, as names or `*`
+  patterns (`""` is the top folder):
+  - `library`: a signed-in upload, which names no library, goes to the record's
+    **one** folder in a matching library instead of its first. None matching is
+    a 409 `upload_library_not_found`, several a 409 `upload_library_ambiguous`,
+    both at upload start. A folder is made only when the list is **one exact
+    name**; a pattern only picks from folders the record already has. An
+    invite's preset library must match and have a folder (row mode, so
+    `invite_library` isn't needed beside it). Not with `libraries` or a fixed
+    `columns.library`.
+  - `folder`: the folders a caller or invite may put a file in (`"Photos"`,
+    `"Evidence*"`), written with no spaces or slashes at either end, or the
+    plan never settles. Not with a fixed `columns.folder`.
+  - Keep it in step with `filters`: `allowed = { library = ["*-Shared-*"] }`
+    beside `filters = ["library contains '-Shared-'"]`. The API warns
+    (`documents-upload-library-hidden`) when an allowed library is one the
+    route's own filter hides.
 - Needs: document management on for the table in Dataverse; the API's service
   principal with Sites.Selected Write on the site; its app user with Create on
   Document Location; a CORS rule on the downloads storage allowing PUT.
-- **Version gate:** never apply `upload.columns.folder`, `.library` or
+- **Version gate:** never apply `upload.allowed` or a field's write rules to
+  an API older than 1.58.0, nor `upload.columns.folder`, `.library` or
   `upload.libraries` to an API older than 1.48.0. It refuses them as unknown
   settings, and the table drops out of the scope.
 - Sending an invite through the API needs `<subject>:invite` plus the
