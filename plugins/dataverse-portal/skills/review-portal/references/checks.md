@@ -3,7 +3,7 @@
 One entry per id the scanner reports. **Confirm** is what turns a candidate
 into a finding; **Not a finding when** is the usual false positive; **Fix**
 points at the pattern, most of them written out in `build-portal`'s
-*Security — what the generated code must not do*.
+`references/code-security.md` (*Security — what the generated code must not do*).
 
 ## Data access
 
@@ -14,7 +14,7 @@ points at the pattern, most of them written out in `build-portal`'s
 | `route-param` | A `useParams` id reaches `client.*.get` / `update`. The SDK puts it into the request path unencoded, with the user's token | The param is only used for display or local filtering | Check it is a GUID first, and render "not found" if not |
 | `fetchpage-arg` | `fetchPage` is handed anything but the `page.next` the API returned (or a cursor derived from it) | The argument is `page.next` under another name — trace it | Pass `page.next` only. `fetchPage` sends the bearer token to any absolute URL |
 | `fetchpage-append` | `fetchPage` is handed `page.next` with the portal's own query appended (`next + qs`, `` `${next}&select=…` ``) | The API is older than 1.24.0, whose `next` drops the query — and then the URL is rebuilt from the cursor each page, not appended to the last one | Pass `page.next` as returned. It already carries `select` / `filter` / `expand`; appending sent every parameter twice, and up to API 1.25.0 the URL grew each page until a `414 URI Too Long` |
-| `public-invoke` | The custom API isn't published on the `public` tier, so this call 401s | It is meant to be anonymous and read-only | Call it on its tier — `client.me.invokeFunction` / `invokeAction` (SDK 1.26.0+), which send the token (build-portal, *SDK usage*). Never make an API public to suit the client |
+| `public-invoke` | The custom API isn't published on the `public` tier, so this call 401s | It is meant to be anonymous and read-only | Call it on its tier — `client.me.invokeFunction` / `invokeAction` (SDK 1.26.0+), which send the token (build-portal, `references/sdk-usage.md`). Never make an API public to suit the client |
 | `invoke-id-in-body` | A custom API call carries a record id — often one the user picked, or a route param — in `body` / `params` rather than `recordId` | The id isn't a record the API acts on (a reference-data choice the definition marks `unchecked`), or the definition has no `tiers` and an `ownershipCheck` whose `recordIdPath` reads it — say which | Pass the record as `recordId`. A tiered API checks the record in the URL against the caller and writes it into its own parameter; a body naming a different one is a 400. A reference number (ticket number) in the body is the same finding: an API whose target has `recordKey` takes it as `recordId` (API 1.29.0+). If the definition has no `tiers`, it needs them — ask for the scope to be fixed, not the portal |
 | `company-key` | The portal switches company, and this key's data depends on the company | Identity-wide or public data: `whoami`, a public knowledge base | Put the selected company id in the key, or clear the cache on switch |
 | `persisted-cache` | Query data is written to storage | — | Don't persist it. On a shared computer it is the previous person's data |
@@ -37,7 +37,7 @@ wrong column name at compile time. None of these leak data on their own, except
 | `no-generate-script` | The generated file exists but nothing regenerates it, so it drifts from the scope | It is regenerated in CI some other way | Add the `generate:types` script |
 | `sdk-untyped` | A `list` / `get` / `create` / `update` call has no row type, so the result is untyped and a cast usually follows | Throwaway or diagnostic code | `list<Case>(…)` with `QueryOptionsFor<CaseField>`; writes take `CaseCreateInput` / `CaseUpdateInput` |
 | `partial-write` | A write payload is `Partial<Row>`, so setting a read-only column compiles and the API drops it silently | The type is already narrowed to writable columns by hand. It still should be the generated input | `CaseCreateInput` / `CaseUpdateInput` from the generated file |
-| `unpaged-list` | Nothing in the portal follows `page.next`, so each list shows its first page only: 20 rows by default, 100 at most, with no error past that | The table can't outgrow one page (a handful of reference rows) and `top` covers it — say so in a comment | `useInfiniteQuery` with `fetchPage(page.next)` and a "Load more" control (build-portal, *Code quality*); `eachPage` for a bounded export |
+| `unpaged-list` | Nothing in the portal follows `page.next`, so each list shows its first page only: 20 rows by default, 100 at most, with no error past that | The table can't outgrow one page (a handful of reference rows) and `top` covers it — say so in a comment | `useInfiniteQuery` with `fetchPage(page.next)` and a "Load more" control (build-portal, `references/code-quality.md`); `eachPage` for a bounded export |
 | `hand-fetch` | A Contact API route is called with `fetch` rather than the SDK | An anonymous `POST /public/{table}` on a `publicCreate` table, which the SDK has no method for | The SDK's tier client. It handles the token, the company header, query encoding and errors |
 
 ## Rendering

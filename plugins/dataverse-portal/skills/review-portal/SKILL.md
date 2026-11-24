@@ -13,8 +13,8 @@ tier to make an error go away, leave the last person signed in on a library PC,
 or faithfully display staff-only data that the scope exposes.
 
 This skill reviews an existing portal against the rules `build-portal`
-generates code to (its *Security — what the generated code must not do*
-section), and reports what it finds with the fix. It is report-only until the
+generates code to (its `references/code-security.md`, *Security — what the
+generated code must not do*), and reports what it finds with the fix. It is report-only until the
 user asks for changes.
 
 ## What it needs
@@ -141,8 +141,9 @@ Severity:
 | **Low** | Hygiene and defence in depth | SDK behind latest; no generated types; untyped SDK calls or `Partial<Row>` writes; popup sign-in; links from data on React < 19; `team` calls to confirm; debug switches; `.gitignore` gaps; status columns writable |
 
 Quote the line behind each finding, and give the smallest fix. The patterns
-are in `build-portal`: `SafeHtml`, `safeHref`, the GUID check, `friendlyError`,
-`sessionStorage`, and the headers in its `references/security.md`.
+are in `build-portal`: `SafeHtml`, `safeHref`, the GUID check and
+`friendlyError` in its `references/code-security.md`, `sessionStorage` in its
+`references/auth.md`, and the headers in its `references/security.md`.
 
 ## 7. Fixing — only when asked
 
@@ -158,8 +159,10 @@ are in `build-portal`: `SafeHtml`, `safeHref`, the GUID check, `friendlyError`,
 
 ## Where the rules come from
 
-- `build-portal`, in this plugin: the generated-code rules, plus
-  `references/security.md` (response headers, go-live checks).
+- `build-portal`, in this plugin: the generated-code rules in its
+  `references/code-security.md`, `references/auth.md`, `references/sdk-usage.md`
+  and `references/code-quality.md`, plus `references/security.md` (response
+  headers, go-live checks).
 - The `dataverse-contact-api` plugin, if installed: `references/security.md`,
   for what the API enforces versus what it takes on trust — useful when a
   finding needs explaining.

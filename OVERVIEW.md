@@ -40,7 +40,8 @@ Contact Portal API pillar.
 - **`plugins/<name>/skills/<skill>/references/`** — the larger plugins split
   their detail into reference files the skill loads on demand
   (`dataverse-contact-api`: auth, routes, permissions, querying, sdk, admin,
-  troubleshooting; `dataverse-terraform`: patterns, provider-reference,
+  troubleshooting; `build-portal`: one file per workflow step or topic, which
+  SKILL.md names at the step that needs it; `dataverse-terraform`: patterns, provider-reference,
   explaining; `create-gds-service`: GDS rules, schema mapping, templates).
 - **`plugins/<name>/hooks/`** — `hooks.json` plus `check-updates.mjs`, a
   `SessionStart` hook per plugin that compares the installed version against
