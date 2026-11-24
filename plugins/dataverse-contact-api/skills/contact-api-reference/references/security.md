@@ -79,6 +79,17 @@ actually parented before granting any `team` permission.
 - **`readOnly` can't express "settable on create, fixed afterwards"** — it drops
   the value on both. For anything that decides ownership or status, choose
   read-only.
+- **Write rules hold what a caller may write (API 1.58.0).** On a field:
+  `fixed` (the API writes it on every create; no caller can change it),
+  `default`, `allowed` (exact values, or `*` patterns on text), `required`,
+  `minLength`/`maxLength`, `min`/`max`. The server applies them to REST, MCP
+  and invite writes alike, and to an invite's preset values when it is sent.
+  A value the portal forces or restricts only in its UI is not a control:
+  make it a write rule. Rules across fields or rows belong in Dataverse.
+- **Where an upload lands is a write rule too.** `documents.upload.allowed.library`
+  sends an upload to the record's one folder in a matching library (a pattern
+  never makes a folder), so a citizen's file can't land in an officers-only
+  library their listing hides.
 - **Every field a `createDefaults` entry binds should be `readOnly`.** On an
   authenticated create the default overwrites whatever the caller sent. It does
   nothing to stop a later PATCH, and it applies to nothing on an anonymous

@@ -465,6 +465,54 @@ and set `invite_url` on the permissions sync.
   columns are never offered or preset, and a closed case (filtered out of its
   route) takes no notes.
 
+## Write rules: decide what a caller may write
+
+`read_only` says a caller can't write a field. Write rules (provider v1.12.0+,
+Contact API 1.58.0+) say **what** they may write when they can, and let the
+API set a value itself. Reach for them when the brief says any of these:
+
+| The brief says | Write |
+|---|---|
+| "Every case from the portal is a Web case" | `caseorigincode = { …, fixed = "3" }` |
+| "Mark notes sent from the portal" | `subject = { …, fixed = "Sent from the portal" }` |
+| "Citizens can raise a question or a problem, not a request" | `casetypecode = { …, allowed = ["1", "2"] }` |
+| "Default it to Question" | add `default = "1"` |
+| "A case must have a title, under 200 characters" | `title = { …, required = true, max_length = 200 }` |
+| "Categories starting Comp, or Enquiry" | `category = { …, allowed = ["Comp*", "Enquiry"] }` |
+| "Uploads go to the customer-visible library" | `upload { allowed = { library = ["*-Shared-*"] } }` |
+
+- **The server enforces them, so the portal doesn't have to be trusted.** A
+  dropdown that hides an option, or a form that pre-fills a value, is only UX;
+  without the rule anyone with `curl` can send the other value. If the brief
+  says a value must hold, it's a write rule, not portal code.
+- **Choice values, not labels.** Discover them first (`GET /{scope}/choices/{route}`)
+  and write the value as a string: `fixed = "3"`.
+- **Stay per field.** "Required when the status is Closed", "a postcode in our
+  area" or anything that reads another row is a Dataverse plugin or business
+  rule, not a write rule. Say so rather than approximating it.
+- **`fixed` on update:** the API never rewrites a fixed value on PATCH, so an
+  officer's change in Dynamics stays. A caller sending the same value is fine;
+  any other value is refused.
+- **Uploads with per-service libraries:** pair the listing filter and the
+  upload rule, and don't create folders the listing would hide:
+
+```hcl
+documents {
+  permission = "casedocuments"
+  columns    = { ShowOnPortal = "boolean" }
+  filters    = ["ShowOnPortal eq true", "library contains '-Shared-'"]
+  upload {
+    columns = { ShowOnPortal = "true" }
+    invites = true
+    allowed = { library = ["*-Shared-*"] }
+  }
+}
+```
+
+  With one library there's nothing to set; uploads go to the record's folder
+  as before. To pin one library and still have folders made on demand, use one
+  exact name: `allowed = { library = ["Case-Docs"] }`.
+
 ## Field-level gotchas
 
 **Polymorphic navigation properties are not fields.** `customerid` on a case
@@ -477,7 +525,8 @@ state-consistency error on apply.
 identifiers, status codes, `createdon`, computed names — gets
 `read_only = true`. Only genuinely editable columns stay writable. The API drops
 a read-only column silently, from create as well as PATCH, so there is no
-"settable on create only"; for anything that decides status or ownership,
+"settable on create only" (a value the **API** sets, never the caller, is
+`fixed`: see *Write rules* above); for anything that decides status or ownership,
 choose read-only.
 
 **Identity and ownership columns are never writable.** These decide who a caller
