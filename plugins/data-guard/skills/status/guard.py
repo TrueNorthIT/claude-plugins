@@ -190,12 +190,15 @@ def check_text(answer: dict, name: str) -> str:
         answer.get("name_model"), "")
     if not items:
         return f"Data Guard found nothing in {name} ({answer.get('characters', 0):,} characters).{model}"
-    row = "  {:<10}{:<18}{:<16}{:<24}{}"
+    cells = [(f"{i['line']}:{i['column']}", i["what"], i["found_by"], i["standin"], i["hint"]) for i in items]
+    head = ("where", "what", "found by", "stand-in", "looks like")
+    # Each column as wide as its longest cell: an email's stand-in was cut short at a fixed width.
+    widths = [max(len(c[n]) for c in cells + [head]) + 2 for n in range(4)]
+    row = "  " + "".join(f"{{:<{w}}}" for w in widths) + "{}"
     lines = [f"Data Guard found {len(items)} thing{'s' if len(items) != 1 else ''} in {name}:", "",
-             row.format("where", "what", "found by", "stand-in", "looks like")]
-    for i in items:
-        lines.append(row.format(f"{i['line']}:{i['column']}", i["what"][:17], i["found_by"][:15],
-                                i["standin"][:23], i["hint"]).rstrip())
+             row.format(*head)]
+    for c in cells:
+        lines.append(row.format(*c).rstrip())
     blocked = answer.get("as_a_prompt") == "blocked"
     lines += ["", ("As a prompt it would be stopped (in enforce mode) by the items the rules or the client "
                    "list found." if blocked else
