@@ -5,6 +5,7 @@
   guard.py stats [--days 7]
   guard.py fill reply.draft.md --from contacts.csv [--from more.json] [--out reply.md]
   guard.py report <token>
+  guard.py check notes.txt [--json]        (or - for stdin)
   guard.py project-off --reason "generating synthetic test data" [--until 2026-12-31] [--path DIR] [--user NAME]
   guard.py project-on [--path DIR] [--user NAME]
   guard.py list
@@ -24,11 +25,17 @@ bigmac builds the issue: the words Data Guard caught appear only where bigmac's 
 judged them not to be customer data, and the rest stay as kinds and stand-ins. This
 prints the issue's link, never the issue. Without gh, the report is saved to a file.
 
+check says what Data Guard finds in a file and where: line and column, the kind (name,
+client name, NI number...), what found it (the rules, the client list or the name model),
+the stand-in it would get and a masked hint (Ja•• •••th), so you can see what
+to take out before you paste it. It never prints the text it found. --json prints the
+scanner's answer as it came, with character offsets, for scripts.
+
 stats says how fast Data Guard has been for you: it times the hook on this computer
 (five tries through the organisation's hook command), then asks the scanner for your
 checks in the audit log. Timings, counts and tool names only.
 
-Anyone can run status, stats, fill and report. Switching Data Guard off for one session isn't done
+Anyone can run status, stats, check, fill and report. Switching Data Guard off for one session isn't done
 here: the engineer types `/data-guard:off <reason>` as a prompt, which only a
 person can do. project-off, project-on and list need the Data Guard admin key
 in ~/.claude-dlp/admin.key, or SCANNER_ADMIN_KEY; the key is never printed.
@@ -173,6 +180,51 @@ def report(token: str) -> None:
     sys.exit(f"Couldn't open the GitHub issue ({why}). The report is saved in {kept}. It holds only what "
              "bigmac's model cleared, so it's fine to send to whoever looks after Data Guard, or to post at "
              f"https://github.com/{answer['repo']}/issues/new once gh can (gh auth login).")
+
+
+# ------------------------------------------------------------------ check
+def check_text(answer: dict, name: str) -> str:
+    items = answer.get("items") or []
+    model = {"checked": "", "not running": " The name model isn't running, so names weren't looked for.",
+             "ran out of time": " The name model ran out of time, so some names may be missed."}.get(
+        answer.get("name_model"), "")
+    if not items:
+        return f"Data Guard found nothing in {name} ({answer.get('characters', 0):,} characters).{model}"
+    row = "  {:<10}{:<18}{:<16}{:<24}{}"
+    lines = [f"Data Guard found {len(items)} thing{'s' if len(items) != 1 else ''} in {name}:", "",
+             row.format("where", "what", "found by", "stand-in", "looks like")]
+    for i in items:
+        lines.append(row.format(f"{i['line']}:{i['column']}", i["what"][:17], i["found_by"][:15],
+                                i["standin"][:23], i["hint"]).rstrip())
+    blocked = answer.get("as_a_prompt") == "blocked"
+    lines += ["", ("As a prompt it would be stopped (in enforce mode) by the items the rules or the client "
+                   "list found." if blocked else
+                   "As a prompt it would be sent: what's left are the name model's guesses, which are only logged."),
+              "In tool output, each item is replaced with its stand-in." + model]
+    return "\n".join(lines)
+
+
+def check(source: str, as_json: bool) -> None:
+    if not source:
+        sys.exit("Say what to check: guard.py check notes.txt, or - to read stdin.")
+    if source == "-":
+        text, name = sys.stdin.read(), "the text"
+    else:
+        path = Path(source)
+        if not path.is_file():
+            sys.exit(f"{source} isn't a file.")
+        text, name = path.read_text(encoding="utf-8", errors="replace"), path.name
+    raw, _ = via_hook("/check", {"text": text}, "check")
+    try:
+        answer = json.loads(raw)
+    except ValueError:
+        sys.exit("Data Guard didn't answer. Check the status line isn't red, then try again. If it's green, "
+                 "the scanner may not have /check yet.")
+    if "items" not in answer:
+        sys.exit(f"Data Guard couldn't check it: {answer.get('error', 'no reason given')}")
+    if hasattr(sys.stdout, "reconfigure"):  # the hints' dots: a Windows pipe is cp1252 otherwise
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    print(json.dumps(answer, indent=2) if as_json else check_text(answer, name))
 
 
 # ------------------------------------------------------------------ stats
@@ -327,11 +379,13 @@ def fill(draft_path: str, sources: list, out: str) -> None:
 
 def main() -> None:
     p = argparse.ArgumentParser(description="Check Data Guard, fill a draft, or turn it off or on for a project.")
-    p.add_argument("action", choices=["status", "stats", "fill", "report", "off", "on", "project-off",
+    p.add_argument("action", choices=["status", "stats", "check", "fill", "report", "off", "on", "project-off",
                                       "project-on", "list"])
     p.add_argument("--days", type=int, default=7, help="stats: how many days back to look, 1 to 30 (default 7)")
     p.add_argument("draft", nargs="?", metavar="DRAFT_OR_TOKEN",
-                   help="fill: the draft with stand-ins, e.g. reply.draft.md; report: the token from Data Guard's note")
+                   help="fill: the draft with stand-ins, e.g. reply.draft.md; report: the token from Data Guard's note; "
+                        "check: the file to check, or - for stdin")
+    p.add_argument("--json", action="store_true", help="check: print the scanner's answer as JSON")
     p.add_argument("--from", dest="sources", action="append", default=[],
                    help="fill: a file holding the real values (repeat for several)")
     p.add_argument("--out", help="fill: where to write the filled copy (default: the draft's name without .draft)")
@@ -347,6 +401,8 @@ def main() -> None:
                  "Data Guard off or on for a session, so Claude can't do it for you.")
     if a.action == "fill":
         fill(a.draft, a.sources, a.out)
+    elif a.action == "check":
+        check(a.draft, a.json)
     elif a.action == "report":
         report(a.draft)
     elif a.action == "stats":

@@ -15,6 +15,7 @@ plugin for everyone.
 | Tell us Data Guard got something wrong | `/data-guard:report <what was wrong>` ([Report a mistake](#report-a-mistake-report)) |
 | Work with fictional data all session | `/data-guard:off <why>`, and `/data-guard:on` after |
 | Write an email or file with the real values Claude only saw as stand-ins | Claude drafts it as `reply.draft.md`, then `guard.py fill` puts the real values in on your machine ([Draft, then fill](#draft-then-fill)) |
+| See what Data Guard finds in a file, and where, before you share it | `/data-guard:check <file>` ([Check a file](#check-a-file-check)) |
 | See whether Data Guard is slowing you down | `/data-guard:stats` (or `/data-guard:stats 30` for 30 days) ([How fast it is](#how-fast-it-is)) |
 | Keep a client's name readable in a project | List it in `.allowed-names` in the project folder ([Company names](#what-it-checks)) |
 | Know what Claude may query from a customer's system | Ask Claude: it follows the `customer-data` skill ([Customer systems](#customer-systems)) |
@@ -89,6 +90,26 @@ your description is held back if it might name someone. Emails, numbers, client
 names and the like are never shown. Without `gh`, or access to the repo, the
 report is saved to a file for you to send on. Keep customer details out of the
 description anyway.
+
+### Check a file: `check`
+
+To see exactly what Data Guard would flag in a file before you give it to Claude:
+
+```
+/data-guard:check notes/ticket.txt
+```
+
+Claude runs it without reading the file. Each thing found is listed with its line
+and column, what it is (name, client name, email, NI number, secret...), what
+found it (the rules, the client list or the name model), the stand-in it would
+get and a hint with most letters as dots (`Ja•• •••th`), never the text itself.
+It also says whether the file, sent as a prompt, would be stopped. To check text
+on your clipboard, in your own terminal:
+`Get-Clipboard | python guard.py check -` (Windows) or `pbpaste | python3
+guard.py check -` (macOS).
+
+When Data Guard stops a prompt, its message now lists what it found the same way,
+with the line it's on, so you know what to take out.
 
 ### Getting it wrong is fine
 
