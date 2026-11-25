@@ -252,6 +252,20 @@ A link that lets whoever holds it do **one thing, once**, with no account:
   same 404 `invite_not_found`. Email-bound links need that person signed in
   (401 / 403).
 
+**Instructions (1.59.0, solution 2.10.0.0)** are `instructions` on the invite
+(and on a batch and each of its steps): the ask as headed sections,
+`[{ "label": "Instructions", "text": "Please upload a valid passport" }, { "label": "More details", "text": "Photo pages a, b and c" }]`.
+Up to 10 sections; plain text only (HTML is a 400); a section has `label` and
+`text` and nothing else, because it describes the whole ask, never a field
+(a `field` key is a 400). With no `message`, the message is written out from
+them (`Label: text` lines). Describe returns them as `instructions` beside
+`message`, only when the sender gave some. On an invite page, show each label
+as a heading with its text below it, **as text** (React's `{text}`, never
+`dangerouslySetInnerHTML`; keep the line breaks with `white-space: pre-line`),
+and fall back to `message` when there are none. The page sees them before an
+email-bound invite's address signs in, like the message. The Dataverse actions
+take them as `Instructions`, a JSON list as text.
+
 **Preset values (1.47.0)** are `values` on the invite: fields the sender fixes
 and the invitee sees in describe but can't send or change. Sending one anyway
 is a 400 before the link is spent. They're re-checked every time the link is
