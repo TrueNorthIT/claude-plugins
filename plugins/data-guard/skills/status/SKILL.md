@@ -1,6 +1,6 @@
 ---
 name: status
-description: TrueNorth's Data Guard, which checks Claude Code prompts and tool output for customer data under organisation policy. Use when the user types /data-guard:status, asks whether Data Guard (or DLP, or the customer-data scanner) is on, why a prompt or tool call was blocked or output redacted, why the status line's counts went up, what the status line means, which /data-guard commands there are, how to work with test, fictional or made-up data without it being flagged, how to mark a file as test data, what is exempt, or how to keep a client's name readable in a project (.allowed-names). Also use when the user wants an email, letter, report or file written with real customer data that Data Guard showed you as stand-ins (Person_1a2b and so on), or a write was refused because it contained stand-ins: draft it and fill it with guard.py fill.
+description: "TrueNorth's Data Guard, which checks Claude Code prompts and tool output for customer data under organisation policy. Use when the user types /data-guard:status, asks whether Data Guard (or DLP, or the customer-data scanner) is on, why a prompt or tool call was blocked or output redacted, why the status line's counts went up, what the status line means, which /data-guard commands there are, how to work with test, fictional or made-up data without it being flagged, how to mark a file as test data, what is exempt, or how to keep a client's name readable in a project (.allowed-names). Also use when the user wants an email, letter, report or file written with real customer data that Data Guard showed you as stand-ins (Person_1a2b and so on), or a write was refused because it contained stand-ins: draft it and fill it with guard.py fill."
 ---
 
 # Data Guard
@@ -48,6 +48,7 @@ without the colon is an unknown command.
 | `/data-guard:status` | `/data-guard:status` | This skill: the status line and these commands. |
 | `/data-guard:report <what was wrong>` | `/data-guard:report it took our server's name for a company` | Files the last thing flagged in this session as a GitHub issue for the people who look after Data Guard, with the user's description. bigmac builds the issue and shows the words it caught only where its own model judged them not to be customer data. Data Guard's note says what to run. |
 | `/data-guard:stats [days]` | `/data-guard:stats 30` | How fast Data Guard has been for them: the hook's time on their computer, their checks on bigmac by kind, tool and day, and the slowest. |
+| `/data-guard:check <file>` | `/data-guard:check notes/ticket.txt` | What Data Guard finds in the file, item by item: line and column, kind, what found it, the stand-in and a masked hint. Never the text itself. Don't read the file yourself. |
 
 Data Guard sees the message before you do, acts on it, logs who and why, and adds
 a note to your context saying what happened. Follow that note: tell the user in a
