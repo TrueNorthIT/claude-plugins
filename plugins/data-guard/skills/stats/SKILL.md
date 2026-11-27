@@ -18,10 +18,12 @@ Show what it printed, as it is, in a code block. Then say in two or three lines 
 it means for them, from these:
 
 - **"On this computer"** is the cost of every hook before bigmac does anything:
-  starting a shell and curl, and the trip over Tailscale. About 300 ms is normal on
-  Windows, where starting Git Bash and curl is most of it; a Mac takes under 100 ms.
-  Much more points at this computer or its route to bigmac: Tailscale relayed rather
-  than direct, a VPN, or antivirus scanning each start.
+  starting a shell and curl, and the trip to bigmac (its office-network address,
+  10.0.70.165, first, then Tailscale). About 300 ms is normal on Windows, where
+  starting Git Bash and curl is most of it; a Mac takes under 100 ms. Off the office
+  network and VPN, add about half a second while the office address times out before
+  Tailscale is tried. Much more points at this computer or its route to bigmac:
+  Tailscale relayed rather than direct, a slow VPN, or antivirus scanning each start.
 - **"On bigmac"** is the scanner's own time. Tool output is the slow one because the
   name model reads it; a median under 200 ms and a 90% under 1 s is normal. Long
   outputs (tens of thousands of characters) take longer, and so do many outputs at
