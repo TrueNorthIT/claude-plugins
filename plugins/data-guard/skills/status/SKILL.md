@@ -127,6 +127,7 @@ skill loads; `guard.py` sits next to this file. Use `python3` on macOS.
 | Yellow `● Data Guard watching …` | Audit mode: it logs what it would do and changes nothing. |
 | Magenta `○ Data Guard off for this session …` | The user switched it off. `/clear` or `/data-guard:on` brings it back. |
 | Magenta `○ Data Guard off for this project …` | An admin exempted this folder for a while. |
+| Yellow `WARNING: Tailscale will soon be deprecated …` in front of the usual line | Checking as normal, but over Tailscale, which is being retired: connect to the office network or VPN. |
 | Red `WARNING: can't reach Data Guard …` | Nothing is being checked. It tries bigmac on the office network (10.0.70.165) and then Tailscale, and neither answered: connect to the office network or VPN, or connect Tailscale to the TrueNorth tailnet. |
 
 Green and yellow lines carry this session's counts, such as

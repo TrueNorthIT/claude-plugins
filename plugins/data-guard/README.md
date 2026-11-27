@@ -216,6 +216,7 @@ The line at the bottom of Claude Code refreshes every 15 seconds.
 | Yellow `● Data Guard watching (audit mode) · … · would have redacted 3, blocked 1` | Trial run: it logs what it would have done and changes nothing. |
 | Magenta `○ Data Guard off for this session: <why> …` | You switched it off. `/clear` or `/data-guard:on` brings it back. |
 | Magenta `○ Data Guard off for this project …` | An admin exempted this folder for a while. |
+| Yellow `WARNING: Tailscale will soon be deprecated …` in front of the usual line | Checking as normal, but it reached bigmac over Tailscale, which is being retired. Connect to the office network or VPN. |
 | Red `WARNING: can't reach Data Guard …` | It tried bigmac on the office network (10.0.70.165) and then Tailscale, and neither answered. Connect to the office network or VPN, or connect Tailscale to the TrueNorth tailnet. |
 
 The counts are for the session you're in, and start again in a new one:
