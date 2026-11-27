@@ -13,7 +13,7 @@ fill puts the real values back into a draft Claude wrote with stand-ins (Person_
 and so on), from source files on this machine, and writes the result next to it
 (reply.draft.md becomes reply.md). Data Guard finds the values in the sources and
 swaps back only the stand-ins they match; it stores nothing. It goes the way the
-organisation's hooks go (Tailscale, then bigmac's own network, pinned to its key),
+organisation's hooks go (bigmac's office-network address, pinned to its key, then Tailscale),
 using Claude Code's copy of the managed settings, and prints stand-ins and counts
 only, never a value. The filled file holds real customer data: send or use it
 yourself.
@@ -354,13 +354,14 @@ def main() -> None:
             sys.exit("--days must be 1 to 30.")
         stats(a.days)
     elif a.action == "status":
-        # The way the hooks go (Tailscale, then bigmac's LAN), so this says what the status
-        # line says: Tailscale alone called bigmac unreachable while the hooks were working.
+        # The way the hooks go (bigmac's office-network address, then Tailscale), so this says
+        # what the status line says: one route alone called bigmac unreachable while the hooks worked.
         session = os.environ.get("CLAUDE_CODE_SESSION_ID")
         line, _ = via_hook("/statusline", {"cwd": path, "session_id": session}, "status")
         if not line.strip():
-            sys.exit("Can't reach Data Guard on bigmac over Tailscale or the LAN. Until it answers, nothing is "
-                     "checked: prompts and tools still go through, unchecked. Connect Tailscale to the TrueNorth tailnet.")
+            sys.exit("Can't reach Data Guard on bigmac over the office network or Tailscale. Until it answers, "
+                     "nothing is checked: prompts and tools still go through, unchecked. Connect to the office "
+                     "network or VPN, or connect Tailscale to the TrueNorth tailnet.")
         print(ANSI.sub("", line.decode("utf-8")).strip().lstrip("●○ ") + f"  [{path}, user {a.user}]")
     elif a.action == "list":
         rows = admin("GET")

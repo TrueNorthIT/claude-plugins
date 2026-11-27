@@ -18,7 +18,7 @@ plugin for everyone.
 | See whether Data Guard is slowing you down | `/data-guard:stats` (or `/data-guard:stats 30` for 30 days) ([How fast it is](#how-fast-it-is)) |
 | Keep a client's name readable in a project | List it in `.allowed-names` in the project folder ([Company names](#what-it-checks)) |
 | Know what Claude may query from a customer's system | Ask Claude: it follows the `customer-data` skill ([Customer systems](#customer-systems)) |
-| Fix a red status line | Connect Tailscale to the TrueNorth tailnet. While it's red, nothing is checked. |
+| Fix a red status line | Connect to the office network or VPN, or connect Tailscale to the TrueNorth tailnet. While it's red, nothing is checked. |
 
 ## Commands
 
@@ -193,7 +193,8 @@ queries a customer's system; it's the detail behind the
 unless you give a number (up to 30):
 
 - **On this computer:** what each hook costs before bigmac does anything:
-  starting a shell and curl, and the trip over Tailscale. It times five tries.
+  starting a shell and curl, and the trip to bigmac (its office-network address,
+  10.0.70.165, first, then Tailscale). It times five tries.
   About 300 ms is normal on Windows and under 100 ms on a Mac. Tool calls that are
   checked before and after pay it twice.
 - **On bigmac:** its own time per check, for your prompts, tool calls and tool
@@ -215,7 +216,8 @@ The line at the bottom of Claude Code refreshes every 15 seconds.
 | Yellow `● Data Guard watching (audit mode) · … · would have redacted 3, blocked 1` | Trial run: it logs what it would have done and changes nothing. |
 | Magenta `○ Data Guard off for this session: <why> …` | You switched it off. `/clear` or `/data-guard:on` brings it back. |
 | Magenta `○ Data Guard off for this project …` | An admin exempted this folder for a while. |
-| Red `WARNING: can't reach Data Guard …` | It tried Tailscale and then bigmac's own network, and neither answered. Connect Tailscale to the TrueNorth tailnet. |
+| Yellow `WARNING: Tailscale will soon be deprecated …` in front of the usual line | Checking as normal, but it reached bigmac over Tailscale, which is being retired. Connect to the office network or VPN. |
+| Red `WARNING: can't reach Data Guard …` | It tried bigmac on the office network (10.0.70.165) and then Tailscale, and neither answered. Connect to the office network or VPN, or connect Tailscale to the TrueNorth tailnet. |
 
 The counts are for the session you're in, and start again in a new one:
 
