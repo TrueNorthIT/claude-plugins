@@ -31,7 +31,7 @@ allowed to share for that client.
 ## Preflight — run before the first call
 
 1. `GET {base}/models` (pinned, 10 s timeout):
-   `curl -sS --fail -k --pinnedpubkey <pin> --connect-timeout 10 https://10.0.70.165:8789/v1/models`
+   `curl -sS --fail -k --pinnedpubkey sha256///5fLdOqebruuMnEbGI2dwmGpPqa5LBpkQ95SFrwdhyo= --connect-timeout 10 --max-time 10 https://10.0.70.165:8789/v1/models`
    (`curl.exe` in PowerShell).
    - **Connection timed out / refused:** the user isn't on the office network. Ask them
      to connect the **WireGuard VPN** (and disconnect any other VPN, e.g. NordLayer, that
