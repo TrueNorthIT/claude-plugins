@@ -1,19 +1,25 @@
 ---
 name: bigmac
-description: Offload grunt work to bigmac, TrueNorth's local model endpoint (OpenAI-compatible, over Tailscale), instead of burning frontier tokens — file/batch summaries, first-pass code exploration, bulk classification, rough drafts. Use when the user asks to summarize many files, map/explore/understand a codebase, classify items in bulk, or says "bigmac".
+description: Offload grunt work to bigmac, TrueNorth's local model endpoint (OpenAI-compatible, on the office network or the WireGuard VPN), instead of burning frontier tokens — file/batch summaries, first-pass code exploration, bulk classification, rough drafts. Use when the user asks to summarize many files, map/explore/understand a codebase, classify items in bulk, or says "bigmac".
 ---
 
 # bigmac — delegate grunt work to TrueNorth's local models
 
 bigmac serves TrueNorth's local models through an **OpenAI-compatible Chat Completions
-API**, reachable only over the TrueNorth Tailscale network (Infrastructure wiki:
-*bigmac / Local Model Endpoint*):
+API** on the office network (Infrastructure wiki: *bigmac / Local Model Endpoint*).
+Connect **ONLY** through this address — in the office directly, remotely over the
+TrueNorth WireGuard VPN:
 
 | | |
 |---|---|
-| Base URL | `https://bigmac-service.tail08382e.ts.net/v1` (override with the `BIGMAC_URL` env var) |
+| Base URL | `https://10.0.70.165:8789/v1` — the only address to use |
+| TLS | bigmac's own self-signed certificate. Always call with curl, `-k` **plus** `--pinnedpubkey sha256///5fLdOqebruuMnEbGI2dwmGpPqa5LBpkQ95SFrwdhyo=`: `-k` skips the CA check, the pin proves it's bigmac. Never drop the pin. |
 | API | OpenAI **Chat Completions** — `POST /chat/completions`. Not the Responses API, not Ollama (`/api/*` returns 404). |
-| API key | Any non-empty value, e.g. `local`. Access is controlled by Tailscale. |
+| API key | Any non-empty value, e.g. `local`. Not checked today; a real key (kept in 1Password) may be required later, so always send one. |
+
+**Tailscale is deprecated.** The old address `https://bigmac-service.tail08382e.ts.net/v1`
+still answers for now but is being removed. NEVER use it, not even as a fallback when
+the address above can't be reached.
 
 **IMPORTANT — auth boundary:** bigmac is reached as a plain HTTP call only. NEVER touch
 Claude Code's own endpoint or auth (`ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, etc.) —
@@ -24,11 +30,17 @@ allowed to share for that client.
 
 ## Preflight — run before the first call
 
-1. `GET {base}/models`. If it times out or fails, say so and do the work on Claude
-   instead — don't stall or retry-loop. The usual causes, for the user to fix:
-   Tailscale isn't **Connected** (signed in with their `@trueNorthIT.co.uk` account),
-   they aren't in `group:bigmac-service-user` (a Tailscale admin adds them), or another
-   VPN (e.g. NordLayer) is blocking Tailscale.
+1. `GET {base}/models` (pinned, 10 s timeout):
+   `curl -sS --fail -k --pinnedpubkey sha256///5fLdOqebruuMnEbGI2dwmGpPqa5LBpkQ95SFrwdhyo= --connect-timeout 10 --max-time 10 https://10.0.70.165:8789/v1/models`
+   (`curl.exe` in PowerShell).
+   - **Connection timed out / refused:** the user isn't on the office network. Ask them
+     to connect the **WireGuard VPN** (and disconnect any other VPN, e.g. NordLayer, that
+     could take the route), then retry **once** when they say it's up. Don't try to
+     start the VPN yourself.
+   - **Still failing, or the user can't connect:** say so and do the work on Claude —
+     don't stall or retry-loop, and don't fall back to Tailscale.
+   - **curl exit 90 (pin mismatch):** something other than bigmac answered, or bigmac's
+     certificate changed. Stop: send nothing, tell the user, and do the work on Claude.
 2. Pick the model from what `/models` ACTUALLY lists (`data[].id`, exact names). Never
    assume a hardcoded name still exists. Prefer one whose `status.value` is `loaded`; an
    unloaded model takes a minute or two to start on first request.
@@ -56,10 +68,12 @@ back in `choices[0].message.reasoning_content`; the answer is in `message.conten
 **NEVER interpolate file content into a double-quoted command string** (e.g.
 `"...$(Get-Content -Raw x)..."`) — backticks/`$` in code files get evaluated by the
 shell and corrupt or break the call. Build the body in a variable (PowerShell) or a temp
-file (bash); content never touches the command line:
+file (bash); content never touches the command line. Both recipes call curl, because
+`Invoke-RestMethod` can't pin a key:
 
 ```powershell
-$base = if ($env:BIGMAC_URL) { $env:BIGMAC_URL } else { 'https://bigmac-service.tail08382e.ts.net/v1' }
+$base = 'https://10.0.70.165:8789/v1'
+$pin  = 'sha256///5fLdOqebruuMnEbGI2dwmGpPqa5LBpkQ95SFrwdhyo='
 $prompt = "Summarise this file:`n" + (Get-Content -Raw $path)   # variable, not inline
 $body = @{
     model = 'qwen3.8-27b'
@@ -67,22 +81,29 @@ $body = @{
     max_tokens = 2000
     chat_template_kwargs = @{ enable_thinking = $false }
 } | ConvertTo-Json -Depth 5
-$r = Invoke-RestMethod -Uri "$base/chat/completions" -Method Post -Body $body `
-    -ContentType 'application/json' -Headers @{ Authorization = 'Bearer local' } -TimeoutSec 300
-$r.choices[0].message.content
-"usage: $($r.usage.prompt_tokens) in / $($r.usage.completion_tokens) out"   # keep for the usage line
+$in = New-TemporaryFile; $out = New-TemporaryFile
+[IO.File]::WriteAllText($in, $body)   # UTF-8, no BOM
+curl.exe -sS --fail -k --pinnedpubkey $pin --connect-timeout 15 --max-time 300 "$base/chat/completions" `
+    -H 'Content-Type: application/json' -H 'Authorization: Bearer local' --data-binary "@$in" -o $out
+if ($LASTEXITCODE -eq 0) {
+    $r = Get-Content -Raw -Encoding utf8 $out | ConvertFrom-Json
+    $r.choices[0].message.content
+    "usage: $($r.usage.prompt_tokens) in / $($r.usage.completion_tokens) out"   # keep for the usage line
+} else { "bigmac call failed or timed out (curl exit $LASTEXITCODE) — do this one on Claude" }
+Remove-Item $in, $out
 ```
 
 ```bash
 # needs curl and jq (jq isn't bundled with Git for Windows; use the PowerShell recipe there)
-BASE="${BIGMAC_URL:-https://bigmac-service.tail08382e.ts.net/v1}"
+BASE="https://10.0.70.165:8789/v1"
+PIN="sha256///5fLdOqebruuMnEbGI2dwmGpPqa5LBpkQ95SFrwdhyo="
 body="$(mktemp)"
 jq -n --rawfile c "$path" '{model:"qwen3.8-27b", max_tokens:2000,
   chat_template_kwargs:{enable_thinking:false},
   messages:[{role:"user", content:("Summarise this file:\n"+$c)}]}' > "$body"
 resp="$(mktemp)"
-# Timeouts so a dropped tailnet or stalled model can't hang a batch.
-if curl -sS --fail --connect-timeout 15 --max-time 300 "$BASE/chat/completions" \
+# Timeouts so a dropped VPN or stalled model can't hang a batch.
+if curl -sS --fail -k --pinnedpubkey "$PIN" --connect-timeout 15 --max-time 300 "$BASE/chat/completions" \
      -H 'Content-Type: application/json' -H 'Authorization: Bearer local' \
      -d @"$body" -o "$resp"; then
   jq -r '.choices[0].message.content' "$resp"
@@ -93,8 +114,10 @@ fi
 rm -f "$body" "$resp"
 ```
 
-Any OpenAI SDK works the same way: `OpenAI(base_url=<base>, api_key="local")` and
-`client.chat.completions.create(...)`, passing `chat_template_kwargs` via `extra_body`.
+Prefer these curl recipes. An OpenAI SDK also works (`OpenAI(base_url=<base>,
+api_key="local")`, `chat_template_kwargs` via `extra_body`) but only with bigmac's
+certificate file passed in its HTTP client, as the wiki page describes — never with
+certificate checking turned off.
 
 ## Pick a mode
 
@@ -118,8 +141,10 @@ Report all of:
    (`https://raw.githubusercontent.com/TrueNorthIT/claude-plugins/main/plugins/bigmac/.claude-plugin/plugin.json`).
    Remind: a running session uses whatever version was loaded at session start — the
    auto-update hook fetches new versions, but a restart applies them.
-2. **Endpoint**: `GET {base}/models` — reachable or not, and each model's id with its
-   `status.value` (loaded / unloaded).
+2. **Endpoint**: `GET {base}/models` on `https://10.0.70.165:8789/v1` (pinned) —
+   reachable or not, and each model's id with its `status.value` (loaded / unloaded).
+   If unreachable, say whether the user needs the WireGuard VPN. Don't check or report
+   the deprecated Tailscale address.
 3. One line each — plugin current/stale, endpoint reachable, models and which are loaded.
 
 ## Report usage at the end

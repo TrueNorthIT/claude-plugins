@@ -1,5 +1,5 @@
 {
   "name": "bigmac",
-  "description": "Offload grunt work to bigmac, TrueNorth's local model endpoint (OpenAI-compatible, reachable over Tailscale) — file/batch summaries, first-pass code exploration, bulk classification, rough drafts — instead of burning frontier tokens. Never touches Claude Code's own endpoint or login. Invoke with /bigmac or just mention bigmac.",
-  "version": "0.8.0"
+  "description": "Offload grunt work to bigmac, TrueNorth's local model endpoint (OpenAI-compatible, on the office network or the WireGuard VPN; Tailscale is deprecated) — file/batch summaries, first-pass code exploration, bulk classification, rough drafts — instead of burning frontier tokens. Never touches Claude Code's own endpoint or login. Invoke with /bigmac or just mention bigmac.",
+  "version": "0.9.0"
 }
